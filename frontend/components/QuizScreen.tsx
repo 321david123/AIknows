@@ -111,7 +111,7 @@ export default function QuizScreen() {
           newAnswers[currentQuestion] = e.target.value;
           setAnswers(newAnswers);
         }}
-        placeholder="Your answer..."
+        placeholder="At least 10 words for functional results"
       />
       <div className="quiz-button-container">
         {currentQuestion < questions.length - 1 ? (

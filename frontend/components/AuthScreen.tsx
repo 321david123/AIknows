@@ -20,6 +20,12 @@ export default function AuthScreen() {
         </svg>
         Log in with LinkedIn
       </button>
+        <Link href={"/quiz"} className="Link">
+      <button  className="linkedin-button">
+        Skip (May be innacurate)
+
+      </button>
+      </Link>
      <LogoutButton ></LogoutButton>
       <p className="auth-description">We'll only access basic profile data for personalized recommendations.</p>
       <Link href="/privacy" className="privacy-link">
