@@ -20,7 +20,7 @@ export default function AuthScreen() {
         </svg>
         Log in with LinkedIn
       </button>
-     <LogoutButton></LogoutButton>
+     <LogoutButton ></LogoutButton>
       <p className="auth-description">We'll only access basic profile data for personalized recommendations.</p>
       <Link href="/privacy" className="privacy-link">
         View our Privacy Policy

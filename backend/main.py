@@ -5,7 +5,6 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
-# Enable CORS so your frontend (running on a different port) can access this endpoint.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # For production, specify your frontend URL
@@ -21,10 +20,11 @@ class AnswerPayload(BaseModel):
 @app.post("/submit-answer")
 async def submit_answer(payload: AnswerPayload):
     try:
-        # Process the incoming answer with adaptive logic.
         process_answer(payload.question_id, payload.answer)
-        # Get a list of follow-up questions based on updated state.
         next_questions = get_next_questions()
+        # Ensure we always return at least one question.
+        if not next_questions:
+            next_questions = ["What motivates you to excel in your career?"]
         return {"nextQuestions": next_questions}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

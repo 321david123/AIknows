@@ -206,6 +206,10 @@ body {
   padding: 20px;
   margin-bottom: 20px;
 }
+.Link{
+  text-decoration: none;
+  color: white;
+}
 
 .footer {
   text-align: center;
@@ -436,3 +440,20 @@ body {
   }
 }
 
+.other{
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  background-color: rgb(43, 43, 43);
+  color: white;
+  padding: 16px;
+  border-radius: 8px;
+  text-decoration: none;
+  font-size: 1.1rem;
+  font-weight: 500;
+  margin-bottom: 1.5rem;
+  border: none;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}

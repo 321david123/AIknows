@@ -4,19 +4,16 @@ import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { useSession } from "next-auth/react";
+import { useRouter } from "next/navigation";
 
 export default function QuizScreen() {
-  // Get session data so we can personalize the first question
   const { data: session, status } = useSession();
-  
-  // Local state for current question index and user answers
+  const router = useRouter();
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [answers, setAnswers] = useState<string[]>([]);
   const [questions, setQuestions] = useState<string[]>([]);
 
-  // When session is ready, update the questions array
   useEffect(() => {
-    // Use a default name if session is not available
     const name = session?.user?.name || "there";
     setQuestions([
       `Hi ${name}, what is the biggest project you've ever worked on?`,
@@ -28,15 +25,12 @@ export default function QuizScreen() {
     ]);
   }, [session]);
 
-  // Show a loading state until session data and questions are ready
   if (status === "loading" || questions.length === 0) {
     return <p>Loading...</p>;
   }
 
-  // Calculate progress percentage for the progress bar
   const progress = ((currentQuestion + 1) / questions.length) * 100;
 
-  // Function to handle clicking the Next button
   const handleNext = async () => {
     const answerToSend = answers[currentQuestion];
     try {
@@ -49,24 +43,28 @@ export default function QuizScreen() {
         }),
       });
       const data = await res.json();
-      console.log("New question from backend:", data.nextQuestion);
-      
-      // Replace the next question in the questions array with the new question from the backend
-      setQuestions((prevQuestions) => {
-        const newQuestions = [...prevQuestions];
-        // Ensure that we're within bounds; here we update the question for the next index
-        if (currentQuestion + 1 < newQuestions.length) {
-          newQuestions[currentQuestion + 1] = data.nextQuestion;
-        } else {
-          // Optionally, you could append the new question if needed:
-          newQuestions.push(data.nextQuestion);
-        }
-        return newQuestions;
-      });
-      
-      // Move to the next question
+      console.log("Response from backend:", data);
+
+      // Assume backend returns an array in data.nextQuestions.
+      let newQuestion = data.nextQuestions[0];
+
+      // If the new question is already present, pick a fallback.
+      if (questions.includes(newQuestion)) {
+        console.warn("New question is repeated, using fallback.");
+        newQuestion = "Can you share another insight about your work experience?";
+      }
+
+      // If not the last question, update the next question slot.
       if (currentQuestion < questions.length - 1) {
+        setQuestions((prevQuestions) => {
+          const updatedQuestions = [...prevQuestions];
+          updatedQuestions[currentQuestion + 1] = newQuestion;
+          return updatedQuestions;
+        });
         setCurrentQuestion(currentQuestion + 1);
+      } else {
+        // If it's the last question, process the final answer and redirect.
+        router.push("/profile");
       }
     } catch (error) {
       console.error("Error submitting answer:", error);
@@ -80,15 +78,10 @@ export default function QuizScreen() {
       transition={{ duration: 0.5 }}
       className="quiz-screen"
     >
-      {/* Progress Bar */}
       <div className="progress-bar">
         <div className="progress-bar-fill" style={{ width: `${progress}%` }} />
       </div>
-
-      {/* Display Current Question */}
       <h2 className="quiz-question">{questions[currentQuestion]}</h2>
-
-      {/* Input Field for Answer */}
       <input
         className="quiz-input"
         value={answers[currentQuestion] || ""}
@@ -99,17 +92,25 @@ export default function QuizScreen() {
         }}
         placeholder="Your answer..."
       />
-
-      {/* Next Button or Final Link */}
-      <div className={`quiz-button-container ${currentQuestion === questions.length - 1 ? "center" : ""}`}>
+      <div className="quiz-button-container">
         {currentQuestion < questions.length - 1 ? (
-          <button className="quiz-button" onClick={handleNext} disabled={!answers[currentQuestion]}>
+          <button
+            className="quiz-button"
+            onClick={handleNext}
+            disabled={!answers[currentQuestion]}
+          >
             Next
           </button>
         ) : (
-          <Link href="/profile" className="quiz-button">
+                    <button
+            className="quiz-button"
+            onClick={handleNext}
+            disabled={!answers[currentQuestion]}
+          >
+            <Link href="/profile" className="Link">
             View Your Profile
           </Link>
+          </button>
         )}
       </div>
     </motion.div>

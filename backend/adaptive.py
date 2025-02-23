@@ -2,7 +2,7 @@ import random
 from ai import analyze_answer
 
 # In-memory state for production use.
-# In a real production system, you’d persist this data.
+# In a production system, you’d persist this data per user.
 user_state = {
     "tech_interest": 0.0,
     "creativity": 0.0,
@@ -10,6 +10,47 @@ user_state = {
     "communication": 0.0,
     "problem_solving": 0.0,
     "innovation": 0.0,
+}
+
+# Expanded dictionary of keywords for each trait.
+# Each trait now includes about 20 keywords for richer detection.
+keywords = {
+    "tech_interest": [
+        "tech", "code", "program", "software", "development",
+        "engineer", "technology", "algorithm", "data", "automation",
+        "cyber", "computing", "network", "system", "ai",
+        "machine", "cloud", "database", "devops", "robotics"
+    ],
+    "creativity": [
+        "creative", "design", "art", "inspire", "imagine",
+        "innovation", "original", "vision", "express", "color",
+        "abstract", "visual", "novel", "craft", "poetic",
+        "concept", "muse", "unique", "imaginative", "artistic"
+    ],
+    "leadership": [
+        "lead", "manage", "director", "coach", "mentor",
+        "guide", "inspire", "supervise", "captain", "head",
+        "boss", "chief", "strategy", "decision", "authority",
+        "command", "initiative", "drive", "responsible", "visionary"
+    ],
+    "communication": [
+        "communicate", "collaborate", "teamwork", "speak", "dialogue",
+        "conversation", "explain", "clarify", "articulate", "express",
+        "network", "rapport", "interaction", "discuss", "engage",
+        "interpersonal", "connect", "mediate", "negotiate", "present"
+    ],
+    "problem_solving": [
+        "solve", "challenge", "problem", "trouble", "fix",
+        "issue", "resolve", "overcome", "tackle", "innovate",
+        "strategize", "debug", "repair", "adapt", "adjust",
+        "improvise", "determine", "analyze", "breakdown", "examine"
+    ],
+    "innovation": [
+        "innovate", "new", "fresh", "disrupt", "transform",
+        "modernize", "change", "cutting-edge", "revolution", "forward",
+        "pioneer", "trailblaze", "creative", "invent", "improve",
+        "evolve", "advance", "breakthrough", "radical", "novel"
+    ],
 }
 
 # Predefined follow-up questions for each trait.
@@ -48,53 +89,48 @@ trait_questions = {
 
 def process_answer(question_id: int, answer: str):
     """
-    Processes the answer by analyzing its sentiment and content,
-    then updates the user's state for various traits.
+    Analyzes the answer using a sentiment analysis model and updates the user's state
+    based on keywords and sentiment score.
     """
     analysis = analyze_answer(answer)
     label = analysis["label"]  # e.g., "POSITIVE" or "NEGATIVE"
     score = analysis["score"]
 
+    print("Analysis output:", analysis)  # Debug logging
     answer_lower = answer.lower()
 
-    # Update trait values based on keywords and sentiment.
-    if "tech" in answer_lower or "code" in answer_lower:
-        user_state["tech_interest"] += score
-    if "creative" in answer_lower or "design" in answer_lower:
-        user_state["creativity"] += score
-    if "lead" in answer_lower or "manage" in answer_lower:
-        user_state["leadership"] += score
-    if "communicate" in answer_lower or "collaborate" in answer_lower:
-        user_state["communication"] += score
-    if "solve" in answer_lower or "challenge" in answer_lower:
-        user_state["problem_solving"] += score
-    if "innovate" in answer_lower or "new" in answer_lower:
-        user_state["innovation"] += score
+    # For each trait, if any keyword is found in the answer, update the corresponding state.
+    for trait, word_list in keywords.items():
+        if any(word in answer_lower for word in word_list):
+            user_state[trait] += score
 
-    # Additional adjustments based on sentiment:
+    # Additional adjustment: if the sentiment is negative and "frustrated" is mentioned,
+    # boost communication.
     if label == "NEGATIVE" and "frustrated" in answer_lower:
         user_state["communication"] += score * 0.5
+
+    print("Updated user_state:", user_state)  # Debug logging
 
 def get_next_questions():
     """
     Determines follow-up questions based on the user's current state.
     Returns a list of questions.
     """
-    # For a more advanced logic, define a significance threshold:
-    threshold = 1.0
+    # Lower threshold to ensure that even small increments trigger a change.
+    threshold = 0.1
     significant_traits = [trait for trait, value in user_state.items() if value > threshold]
-
     questions_to_ask = []
 
-    # If no trait is significant yet, ask a general motivational question.
     if not significant_traits:
+        # Fallback: no trait has risen above the threshold.
         questions_to_ask.append("What motivates you to excel in your career?")
     else:
-        # For each significant trait, select a random question from the list.
+        # For each significant trait, select a random question from that trait's question list.
         for trait in significant_traits:
             available_questions = trait_questions.get(trait, [])
             if available_questions:
                 selected_question = random.choice(available_questions)
                 questions_to_ask.append(selected_question)
 
+    print("get_next_questions returning:", questions_to_ask)  # Debug logging
     return questions_to_ask
