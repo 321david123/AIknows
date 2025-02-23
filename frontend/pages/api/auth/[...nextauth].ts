@@ -2,7 +2,6 @@ import NextAuth from "next-auth";
 import LinkedInProvider from "next-auth/providers/linkedin";
 
 export default NextAuth({
-  debug: true,
   secret: process.env.NEXTAUTH_SECRET,
   providers: [
     LinkedInProvider({
