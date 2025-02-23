@@ -6,13 +6,7 @@ from adaptive import generate_profile_report  # Ensure your report function is i
 from fpdf import FPDF
 from io import BytesIO
 from starlette.responses import StreamingResponse
-from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
-from io import BytesIO
-from fpdf import FPDF
-from adaptive import generate_profile_report  # Your report generator
-from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 

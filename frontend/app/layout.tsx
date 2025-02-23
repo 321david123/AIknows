@@ -5,7 +5,10 @@ import Providers from "./Providers";
 export const metadata: Metadata = {
   title: "AI-knows.me",
   description: "Uncover your unique strengths and unlock personalized recommendations",
-    generator: 'v0.dev'
+    generator: 'david',
+    icons: {
+      icon: "/image.webp", // This tells Next.js to use the favicon from /public/favicon.ico
+    },
 }
 
 export default function RootLayout({

@@ -15,7 +15,7 @@ export default function ProfileScreen() {
   useEffect(() => {
     async function fetchReport() {
       try {
-        const res = await fetch("http://localhost:8000/generate-report", {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/generate-report`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ dummy: "none" }),
@@ -157,7 +157,7 @@ export default function ProfileScreen() {
         style={{ marginBottom: "1rem", display: "flex", gap: "1rem" }}
       >
         <a
-          href="http://localhost:8000/download-report"
+          href={`${process.env.NEXT_PUBLIC_BACKEND_URL}/download-report`}
           target="_blank"
           rel="noopener noreferrer"
           style={{ textDecoration: "none" }}

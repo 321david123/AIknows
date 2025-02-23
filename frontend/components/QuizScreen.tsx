@@ -44,7 +44,7 @@ export default function QuizScreen() {
   const handleNext = async () => {
     const answerToSend = answers[currentQuestion];
     try {
-      const res = await fetch("http://localhost:8000/submit-answer", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/submit-answer`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
