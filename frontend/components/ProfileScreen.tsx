@@ -90,6 +90,7 @@ export default function ProfileScreen() {
           gap: "1rem",
         }}
       >
+          <h2>Static report (spected to change in future version)</h2>
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
