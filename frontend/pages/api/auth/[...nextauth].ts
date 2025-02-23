@@ -20,6 +20,7 @@ export default NextAuth({
       authorization: {
         params: {
           scope: "openid profile email",
+          redirect_uri: "https://ai-knows.me/api/auth/callback/linkedin",
         },
       },
     }),
