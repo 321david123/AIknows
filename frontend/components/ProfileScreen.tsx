@@ -50,7 +50,7 @@ export default function ProfileScreen() {
     >
       <h1 className="profile-title">Your AI-knows.me Profile</h1>
       
-      {/* Display the user's image if available */}
+      {/* User Image */}
       {session?.user?.image && (
         <img
           src={session.user.image}
@@ -95,11 +95,7 @@ export default function ProfileScreen() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.1 }}
           className="profile-card"
-          style={{
-            padding: "1rem",
-            background: "#fff",
-            borderRadius: "8px",
-          }}
+          style={{ padding: "1rem", background: "#fff", borderRadius: "8px" }}
         >
           <h2>Careers</h2>
           <ul>
@@ -114,11 +110,7 @@ export default function ProfileScreen() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.2 }}
           className="profile-card"
-          style={{
-            padding: "1rem",
-            background: "#fff",
-            borderRadius: "8px",
-          }}
+          style={{ padding: "1rem", background: "#fff", borderRadius: "8px" }}
         >
           <h2>Hobbies</h2>
           <ul>
@@ -133,11 +125,7 @@ export default function ProfileScreen() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.3 }}
           className="profile-card"
-          style={{
-            padding: "1rem",
-            background: "#fff",
-            borderRadius: "8px",
-          }}
+          style={{ padding: "1rem", background: "#fff", borderRadius: "8px" }}
         >
           <h2>Cities</h2>
           <ul>
@@ -152,11 +140,7 @@ export default function ProfileScreen() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.4 }}
           className="profile-card"
-          style={{
-            padding: "1rem",
-            background: "#fff",
-            borderRadius: "8px",
-          }}
+          style={{ padding: "1rem", background: "#fff", borderRadius: "8px" }}
         >
           <h2>Startups</h2>
           <ul>
@@ -172,12 +156,19 @@ export default function ProfileScreen() {
         className="profile-actions"
         style={{ marginBottom: "1rem", display: "flex", gap: "1rem" }}
       >
-        <button
-          className="profile-button primary"
-          style={{ padding: "0.5rem 1rem", fontSize: "1rem" }}
+        <a
+          href="http://localhost:8000/download-report"
+          target="_blank"
+          rel="noopener noreferrer"
+          style={{ textDecoration: "none" }}
         >
-          <Download /> Download Report
-        </button>
+          <button
+            className="profile-button primary"
+            style={{ padding: "0.5rem 1rem", fontSize: "1rem" }}
+          >
+            <Download /> Download Report
+          </button>
+        </a>
         <button
           className="profile-button secondary"
           style={{ padding: "0.5rem 1rem", fontSize: "1rem" }}
