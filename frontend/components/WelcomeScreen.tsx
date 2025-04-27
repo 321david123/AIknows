@@ -31,7 +31,7 @@ export default function WelcomeScreen() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5, delay: 0.8 }}
         >
-          <Link href="/auth" className="button">
+          <Link href="/quiz" className="button">
             Get Started
           </Link>
         </motion.div>

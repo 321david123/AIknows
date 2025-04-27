@@ -9,19 +9,23 @@ import { useSession } from "next-auth/react";
 export default function ProfileScreen() {
   const { data: session, status } = useSession();
   const [report, setReport] = useState("");
+  const [traits, setTraits] = useState<string[]>([]);
+  const [publicData, setPublicData] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   // Fetch the personalized profile report from the backend.
   useEffect(() => {
     async function fetchReport() {
       try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL}/generate-report`, {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/generate-report`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ dummy: "none" }),
         });
         const data = await res.json();
         setReport(data.report);
+        if (data.traits) setTraits(data.traits);
+        if (data.public_data) setPublicData(data.public_data);
       } catch (error) {
         console.error("Error fetching report:", error);
       } finally {
@@ -48,7 +52,7 @@ export default function ProfileScreen() {
         width: "100%",
       }}
     >
-      <h1 className="profile-title">Your AI-knows.me Profile</h1>
+      <h1 className="profile-title">Your AI tailored Profile</h1>
       
       {/* User Image */}
       {session?.user?.image && (
@@ -80,77 +84,15 @@ export default function ProfileScreen() {
         </pre>
       </div>
 
-      {/* Static Recommendations Section */}
-      <div
-        className="profile-grid"
-        style={{
-          marginBottom: "2rem",
-          display: "grid",
-          gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-          gap: "1rem",
-        }}
-      >
-          <h2>Static report (spected to change in future version)</h2>
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.1 }}
-          className="profile-card"
-          style={{ padding: "1rem", background: "#fff", borderRadius: "8px" }}
-        >
-          <h2>Careers</h2>
-          <ul>
-            <li>Data Scientist</li>
-            <li>UX Designer</li>
-            <li>Entrepreneur</li>
-          </ul>
-        </motion.div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.2 }}
-          className="profile-card"
-          style={{ padding: "1rem", background: "#fff", borderRadius: "8px" }}
-        >
-          <h2>Hobbies</h2>
-          <ul>
-            <li>Photography</li>
-            <li>Rock Climbing</li>
-            <li>Cooking</li>
-          </ul>
-        </motion.div>
+      {publicData && (
+        <div style={{ marginBottom: "2rem" }}>
+          <h2>Public Info Summary</h2>
+          <p>{publicData}</p>
+        </div>
+      )}
 
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.3 }}
-          className="profile-card"
-          style={{ padding: "1rem", background: "#fff", borderRadius: "8px" }}
-        >
-          <h2>Cities</h2>
-          <ul>
-            <li>San Francisco</li>
-            <li>Berlin</li>
-            <li>Tokyo</li>
-          </ul>
-        </motion.div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, delay: 0.4 }}
-          className="profile-card"
-          style={{ padding: "1rem", background: "#fff", borderRadius: "8px" }}
-        >
-          <h2>Startups</h2>
-          <ul>
-            <li>AI-powered personal assistant</li>
-            <li>Sustainable fashion marketplace</li>
-            <li>Virtual reality education platform</li>
-          </ul>
-        </motion.div>
-      </div>
 
       {/* Profile Actions */}
       <div

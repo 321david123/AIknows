@@ -3,3 +3,7 @@ uvicorn
 transformers
 torch
 fpdf
+supabase
+python-dotenv
+openai
+google-search-results
