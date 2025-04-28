@@ -15,13 +15,20 @@ export default function QuizScreen() {
   const [answers, setAnswers] = useState<string[]>([]);
   const [questions, setQuestions] = useState<string[]>([]);
 
-  const [userId] = useState(() => {
-    const stored = localStorage.getItem("user_id");
-    if (stored) return stored;
-    const id = crypto.randomUUID();
-    localStorage.setItem("user_id", id);
-    return id;
-  });
+  const [userId, setUserId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const stored = localStorage.getItem("user_id");
+      if (stored) {
+        setUserId(stored);
+      } else {
+        const id = crypto.randomUUID();
+        localStorage.setItem("user_id", id);
+        setUserId(id);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     setQuestions([
@@ -58,12 +65,11 @@ export default function QuizScreen() {
         const intro = `Hi ${name}, let's get to know you better.`;
 
         if (data?.gpt?.matched) {
-          const dynamicQuestions = data.followup_questions || [];
+            const dynamicQuestions: string[] = data.gpt.followup_questions?.filter((q: string) => q.trim() !== "") || [];
           setQuestions([
             "What's your full name?",
-            `Hi ${name}, let's get to know you better.`,
-            `We found you online. Does this sound like you? ${data.gpt.summary}`,
-            ...dynamicQuestions,
+            `Hi ${name.split(" ")[0]}, it's nice to have you in our website. Let's get started with a few questions.\n${dynamicQuestions}`,
+            ...dynamicQuestions
           ]);
         } else {
           setQuestions([
@@ -149,7 +155,10 @@ export default function QuizScreen() {
       <div className="progress-bar">
         <div className="progress-bar-fill" style={{ width: `${progress}%` }} />
       </div>
-      <h2 className="quiz-question">{questions[currentQuestion]}</h2>
+      <h2
+        className="quiz-question"
+        dangerouslySetInnerHTML={{ __html: questions[currentQuestion].replace(/\n/g, "<br />") }}
+      />
       <input
         className="quiz-input"
         value={answers[currentQuestion] || ""}
@@ -171,14 +180,12 @@ export default function QuizScreen() {
             Next
           </button>
         ) : (
-                    <button
+          <button
             className="quiz-button"
             onClick={handleNext}
             disabled={!answers[currentQuestion]}
           >
-            <Link href="/profile" className="Link">
-            View Your Profile
-          </Link>
+            {currentQuestion === 0 ? "Continue" : <Link href="/profile" className="Link">View Your Profile</Link>}
           </button>
         )}
       </div>

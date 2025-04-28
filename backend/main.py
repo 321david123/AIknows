@@ -124,6 +124,10 @@ class WhoAmIRequest(BaseModel):
     name: str
     user_id: str = None  # To associate follow-up questions with user/session
 
+def is_well_known(summary: str) -> bool:
+    summary_lower = summary.lower()
+    return any(keyword in summary_lower for keyword in ["known", "famous", "entrepreneur", "celebrity", "figure", "publicly", "widely"])
+
 @app.post("/whoami")
 async def who_am_i(payload: WhoAmIRequest):
     try:
@@ -143,24 +147,30 @@ async def who_am_i(payload: WhoAmIRequest):
             snippets.append(f"{title}: {snippet}")
 
         search_summary = "\n".join(snippets)
-
+        print("Search Summary:", search_summary)
         gpt_prompt = f"Based on this search information, does this describe a well-known person named '{payload.name}'? Give a short summary:\n{search_summary}"
         gpt_response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": gpt_prompt}],
-            temperature=0.5,
+            temperature=0.6,
         )
         summary = gpt_response.choices[0].message.content
+        print("GPT Summary:", summary)
 
-        # Generate follow-up questions based on the summary
-        followup_prompt = f'Based on this summary: "{summary}", write 2 insightful and friendly follow-up questions to better understand this person’s values and mindset, be more personal if the individual is well known. Format them as a plain list.'
+        matched = is_well_known(summary)
+
+        if matched:
+            followup_prompt = f'Based on this summary: "{summary}", write 1 insightful and friendly follow-up questions to better understand this person’s values and mindset, be more personal if the individual is well known (more about their lifestyle). ask the question to the person that the information was about (Just ask the question, do not answer it, neither add anything else, no introduction neither).'
+        else:
+            followup_prompt = 'Write 1 insightful and friendly questions to better understand a new user, using this style: “What’s the biggest goal you’re working on right now?”.'
+
         followup_response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": followup_prompt}],
             temperature=0.7,
         )
         followup_questions = followup_response.choices[0].message.content.strip().split("\n")
-
+        print("Follow-up Questions:", followup_questions)
         # Store follow-up questions if user_id provided
         if payload.user_id:
             user_followup_questions[payload.user_id] = followup_questions
@@ -168,7 +178,7 @@ async def who_am_i(payload: WhoAmIRequest):
         return {
             "searchResults": organic_results,
             "gpt": {
-                "matched": "yes" in summary.lower() or "known" in summary.lower(),
+                "matched": matched,
                 "summary": summary,
                 "followup_questions": followup_questions
             }
