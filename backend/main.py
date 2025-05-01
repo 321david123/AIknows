@@ -11,6 +11,7 @@ import uuid
 import os
 from openai import OpenAI
 import requests
+import json
 
 load_dotenv()  # Load environment variables from .env file
 app = FastAPI()
@@ -19,7 +20,7 @@ SUPABASE_URL = os.getenv("SUPABASE_URL")
 SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
 client = OpenAI(
     api_key=os.getenv("OPENAI_API_KEY"),
-    organization=os.getenv("OPENAI_ORG_ID")  # You need to add this to your .env file
+    organization=os.getenv("OPENAI_ORG_ID"),  # You need to add this to your .env file
 )
 SERP_API_KEY = os.getenv("SERP_API_KEY")
 supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
@@ -35,23 +36,35 @@ app.add_middleware(
 # Global dictionary to store follow-up questions per session or user
 user_followup_questions = {}
 
+
 class AnswerPayload(BaseModel):
     answer: str
     question_id: int
     user_id: str = None  # Assuming we get a user_id or session id to track followups
+
+
 def process_answer(question_id, answer):
     print(f"Received answer for Q{question_id}: {answer}")
+
 
 def get_next_questions(user_id=None):
     if user_id and user_id in user_followup_questions:
         return user_followup_questions.pop(user_id)
     return []
 
+
 def generate_personalized_recommendations():
-    return ["Try a creative side project", "Explore a leadership role", "Collaborate with a team"]
+    return [
+        "Try a creative side project",
+        "Explore a leadership role",
+        "Collaborate with a team",
+    ]
+
 
 def generate_profile_report():
     return "This is your generated profile summary based on your responses."
+
+
 @app.post("/submit-answer")
 async def submit_answer(payload: AnswerPayload):
     try:
@@ -64,8 +77,10 @@ async def submit_answer(payload: AnswerPayload):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 class ReportRequest(BaseModel):
     dummy: str = "none"
+
 
 class ProfilePayload(BaseModel):
     name: str
@@ -73,6 +88,7 @@ class ProfilePayload(BaseModel):
     summary: str
     traits: list = []
     public_data: dict = {}
+
 
 @app.post("/generate-report")
 async def generate_report_endpoint(payload: ReportRequest):
@@ -82,6 +98,7 @@ async def generate_report_endpoint(payload: ReportRequest):
         return {"report": report_text, "recommendations": recommendations}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/download-report")
 async def download_report():
@@ -98,10 +115,11 @@ async def download_report():
         return StreamingResponse(
             buffer,
             media_type="application/pdf",
-            headers={"Content-Disposition": "attachment; filename=report.pdf"}
+            headers={"Content-Disposition": "attachment; filename=report.pdf"},
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.post("/submit-profile")
 async def submit_profile(payload: ProfilePayload):
@@ -120,21 +138,38 @@ async def submit_profile(payload: ProfilePayload):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
 class WhoAmIRequest(BaseModel):
     name: str
     user_id: str = None  # To associate follow-up questions with user/session
 
+
 def is_well_known(summary: str) -> bool:
     summary_lower = summary.lower()
-    return any(keyword in summary_lower for keyword in ["known", "famous", "entrepreneur", "celebrity", "figure", "publicly", "widely"])
+    return any(
+        keyword in summary_lower
+        for keyword in [
+            "known",
+            "famous",
+            "entrepreneur",
+            "celebrity",
+            "figure",
+            "publicly",
+            "widely",
+        ]
+    )
+
 
 @app.post("/whoami")
 async def who_am_i(payload: WhoAmIRequest):
     try:
-        serp_url = f"https://serpapi.com/search.json?q={payload.name}&api_key={SERP_API_KEY}"
+        serp_url = (
+            f"https://serpapi.com/search.json?q={payload.name}&api_key={SERP_API_KEY}"
+        )
         serp_response = requests.get(serp_url)
         serp_response.raise_for_status()  # Raises error for non-2xx responses
         results = serp_response.json()
+        print("Raw SerpAPI response parsed.")
 
         organic_results = results.get("organic_results")
         if not organic_results:
@@ -157,31 +192,51 @@ async def who_am_i(payload: WhoAmIRequest):
         summary = gpt_response.choices[0].message.content
         print("GPT Summary:", summary)
 
-        matched = is_well_known(summary)
+        gpt_followup_prompt = f"""
+  Based on this summary: "{summary}", determine:
+  1. If this person is well known.
+  2. How many follow-up questions are needed (between 2 and 7).
+  3. Provide only the first question to ask them.
 
-        if matched:
-            followup_prompt = f'Based on this summary: "{summary}", write 1 insightful and friendly follow-up questions to better understand this person’s values and mindset, be more personal if the individual is well known (more about their lifestyle). ask the question to the person that the information was about (Just ask the question, do not answer it, neither add anything else, no introduction neither).'
-        else:
-            followup_prompt = 'Write 1 insightful and friendly questions to better understand a new user, using this style: “What’s the biggest goal you’re working on right now?”.'
+  Return in this exact JSON format:
+  {{
+    "matched": true or false,
+    "number_of_questions": X,
+    "first_question": "..."
+  }}
+  """
 
         followup_response = client.chat.completions.create(
             model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": followup_prompt}],
+            messages=[{"role": "user", "content": gpt_followup_prompt}],
             temperature=0.7,
         )
-        followup_questions = followup_response.choices[0].message.content.strip().split("\n")
-        print("Follow-up Questions:", followup_questions)
-        # Store follow-up questions if user_id provided
+        followup_data_raw = followup_response.choices[0].message.content
+        print("Follow-up GPT raw:", followup_data_raw)
+
+        try:
+            followup_data = json.loads(followup_data_raw)
+            print("Parsed follow-up JSON:", followup_data)
+        except json.JSONDecodeError as parse_err:
+            print("Failed to parse GPT response:", parse_err)
+            raise HTTPException(
+                status_code=500, detail="Failed to parse GPT follow-up response"
+            )
+
         if payload.user_id:
-            user_followup_questions[payload.user_id] = followup_questions
+            user_followup_questions[payload.user_id] = {
+                "remaining": followup_data["number_of_questions"] - 1,
+                "total": followup_data["number_of_questions"],
+            }
 
         return {
             "searchResults": organic_results,
             "gpt": {
-                "matched": matched,
+                "matched": followup_data["matched"],
                 "summary": summary,
-                "followup_questions": followup_questions
-            }
+                "number_of_questions": followup_data["number_of_questions"],
+                "first_question": followup_data["first_question"],
+            },
         }
     except Exception as e:
         print("Error in /whoami:", str(e))

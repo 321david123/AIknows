@@ -17,6 +17,14 @@ export default function QuizScreen() {
 
   const [userId, setUserId] = useState<string | null>(null);
 
+  const [typedGreeting, setTypedGreeting] = useState("");
+  const [typedIntro, setTypedIntro] = useState("");
+  const [finalGreetingHTML, setFinalGreetingHTML] = useState("");
+  const [startGreeting, setStartGreeting] = useState(false);
+
+  // Button click state for feedback
+  const [buttonClicked, setButtonClicked] = useState(false);
+
   useEffect(() => {
     if (typeof window !== "undefined") {
       const stored = localStorage.getItem("user_id");
@@ -34,7 +42,32 @@ export default function QuizScreen() {
     setQuestions([
       "What's your full name?",
     ]);
+    setTypedIntro(""); // ensure intro is reset
   }, []);
+
+  useEffect(() => {
+    if (currentQuestion === 0 && questions[0]) {
+      setTypedIntro(""); // reset before interval starts
+      const fullText = questions[0];
+      const interval = setInterval(() => {
+        setTypedIntro((prev) => prev + (fullText[prev.length] || ""));
+        if (typedIntro.length >= fullText.length - 1) clearInterval(interval);
+      }, 20);
+      return () => clearInterval(interval);
+    }
+  }, [currentQuestion, questions]);
+
+  useEffect(() => {
+    if (currentQuestion === 1 && questions[1] && startGreeting) {
+      setTypedGreeting("");
+      const fullText = questions[1];
+      const interval = setInterval(() => {
+        setTypedGreeting((prev) => prev + (fullText[prev.length] || ""));
+        if (typedGreeting.length >= fullText.length - 1) clearInterval(interval);
+      }, 20);
+      return () => clearInterval(interval);
+    }
+  }, [currentQuestion, questions, startGreeting]);
 
   if (status === "loading" || questions.length === 0) {
     return <LoadingVideo />;
@@ -42,6 +75,7 @@ export default function QuizScreen() {
   const progress = ((currentQuestion + 1) / questions.length) * 100;
 
   const handleNext = async () => {
+    setButtonClicked(true);
     const answerToSend = answers[currentQuestion];
     if (currentQuestion === 0) {
       const name = answerToSend.trim();
@@ -64,12 +98,20 @@ export default function QuizScreen() {
         const data = await res.json();
         const intro = `Hi ${name}, let's get to know you better.`;
 
+        const firstName = name.split(" ")[0];
+        const greeting = data.gpt.matched
+          ? `Hi <span class="highlight-name">${firstName}</span>, it's nice to have you in our website. Let's get started with a few questions.`
+          : `Hi ${firstName}, it's nice to have you in our website. Let's get started with a few questions.`;
+
+        setFinalGreetingHTML(greeting);
+        setTypedGreeting("");
+        const plainGreeting = greeting.replace(/<[^>]+>/g, "");
+
         if (data?.gpt?.matched) {
-            const dynamicQuestions: string[] = data.gpt.followup_questions?.filter((q: string) => q.trim() !== "") || [];
           setQuestions([
             "What's your full name?",
-            `Hi ${name.split(" ")[0]}, it's nice to have you in our website. Let's get started with a few questions.\n${dynamicQuestions}`,
-            ...dynamicQuestions
+            plainGreeting,
+            data.gpt.first_question,
           ]);
         } else {
           setQuestions([
@@ -80,6 +122,7 @@ export default function QuizScreen() {
         }
 
         setCurrentQuestion(1);
+        setStartGreeting(true);
       } catch (err) {
         console.error("WhoAmI error:", err);
         alert("Something went wrong trying to fetch your info. Try again later.");
@@ -138,7 +181,13 @@ export default function QuizScreen() {
         });
         router.push("/profile");
       } else {
+        // Reset the answer for the current question right after advancing
         setCurrentQuestion(currentQuestion + 1);
+        setAnswers((prev) => {
+          const newAnswers = [...prev];
+          newAnswers[currentQuestion] = "";
+          return newAnswers;
+        });
       }
     } catch (error) {
       console.error("Error submitting answer:", error);
@@ -155,37 +204,96 @@ export default function QuizScreen() {
       <div className="progress-bar">
         <div className="progress-bar-fill" style={{ width: `${progress}%` }} />
       </div>
-      <h2
-        className="quiz-question"
-        dangerouslySetInnerHTML={{ __html: questions[currentQuestion].replace(/\n/g, "<br />") }}
-      />
-      <input
-        className="quiz-input"
-        value={answers[currentQuestion] || ""}
-        onChange={(e) => {
-          const newAnswers = [...answers];
-          newAnswers[currentQuestion] = e.target.value;
-          setAnswers(newAnswers);
-        }}
-        placeholder="At least 10 words for functional results"
-      />
+      {currentQuestion === 0 ? (
+        <motion.h2
+          className="quiz-question"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.5 }}
+        >
+          {typedIntro}
+        </motion.h2>
+      ) : currentQuestion === 1 ? (
+        typedGreeting.length < questions[1].length ? (
+          <motion.h2
+            className="quiz-question"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.5 }}
+          >
+            {typedGreeting}
+          </motion.h2>
+        ) : (
+          <motion.h2
+            className="quiz-question"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.5 }}
+            dangerouslySetInnerHTML={{ __html: finalGreetingHTML }}
+          />
+        )
+      ) : (
+        <h2
+          className="quiz-question"
+          dangerouslySetInnerHTML={{ __html: questions[currentQuestion].replace(/\n/g, "<br />") }}
+        />
+      )}
+      {currentQuestion !== 1 && (
+        <input
+          className="quiz-input"
+          value={answers[currentQuestion] || ""}
+          onChange={(e) => {
+            const newAnswers = [...answers];
+            newAnswers[currentQuestion] = e.target.value;
+            setAnswers(newAnswers);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              handleNext();
+            }
+          }}
+          placeholder="Bill Gates..."
+        />
+      )}
       
       <div className="quiz-button-container">
         {currentQuestion < questions.length - 1 ? (
           <button
-            className="quiz-button"
+            className={`quiz-button ${buttonClicked ? "clicked" : ""}`}
             onClick={handleNext}
-            disabled={!answers[currentQuestion]}
+            disabled={currentQuestion !== 1 && !answers[currentQuestion]}
           >
-            Next
+            <>
+              Next{buttonClicked && (
+                <span className="dots-loader">
+                  <span className="dot" />
+                  <span className="dot" />
+                  <span className="dot" />
+                </span>
+              )}
+            </>
           </button>
         ) : (
           <button
-            className="quiz-button"
+            className={`quiz-button ${buttonClicked ? "clicked" : ""}`}
             onClick={handleNext}
-            disabled={!answers[currentQuestion]}
+            disabled={currentQuestion !== 1 && !answers[currentQuestion]}
           >
-            {currentQuestion === 0 ? "Continue" : <Link href="/profile" className="Link">View Your Profile</Link>}
+            {currentQuestion === 0 ? (
+              <>
+                {!buttonClicked && "Continue"}
+                {buttonClicked && (
+                  <span className="dots-loader">
+                    <span className="dot" />
+                    <span className="dot" />
+                    <span className="dot" />
+                  </span>
+                )}
+              </>
+            ) : (
+              <Link href="/profile" className="Link">View Your Profile</Link>
+            )}
           </button>
         )}
       </div>
@@ -196,6 +304,47 @@ export default function QuizScreen() {
           </span>
         </Link>
       </div>
+      <style jsx>{`
+        .highlight-name {
+          color: gold;
+          font-weight: bold;
+          animation: pulse 1.5s infinite;
+        }
+
+        /* .clicked now reflects a confirmed/submitted state */
+
+        .dots-loader {
+          display: inline-flex;
+          gap: 3px;
+          margin-left: 8px;
+        }
+
+        .dot {
+          width: 5px;
+          height: 5px;
+          background-color: #fff;
+          border-radius: 50%;
+          animation: bounce 1.4s infinite ease-in-out both;
+        }
+
+        .dot:nth-child(1) { animation-delay: -0.32s; }
+        .dot:nth-child(2) { animation-delay: -0.16s; }
+        .dot:nth-child(3) { animation-delay: 0; }
+
+        @keyframes bounce {
+          0%, 80%, 100% {
+            transform: scale(0);
+          } 40% {
+            transform: scale(1);
+          }
+        }
+
+        @keyframes pulse {
+          0% { text-shadow: 0 0 5px gold; }
+          50% { text-shadow: 0 0 15px gold; }
+          100% { text-shadow: 0 0 5px gold; }
+        }
+      `}</style>
     </motion.div>
   );
 }
