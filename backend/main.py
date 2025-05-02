@@ -195,7 +195,7 @@ async def who_am_i(payload: WhoAmIRequest):
         gpt_followup_prompt = f"""
   Based on this summary: "{summary}", determine:
   1. If this person is well known.
-  2. How many follow-up questions are needed (if its a more known person obviusly is gonna need less questions that someone new that we dont know)(between 2 and 7).
+  2. How many follow-up questions are needed (if its a more known person obviusly is gonna need less questions that someone new that we dont know. if its unknown the questions should be more (around 6))(between 2 and 7).
   3. Provide only the first question to ask them., for this first question: write 1 insightful and friendly follow-up questions to better understand this person’s values and mindset, be more personal if the individual is well known (more about their lifestyle). ask the question to the person that the information was about (Just ask the question, do not answer it, neither add anything else, no introduction neither).
   And if its a not-known person or new user use this method: Write 1 insightful and friendly questions to better understand a new user, Write 1 insightful and friendly questions to better understand a new user, using this style: “What’s the biggest goal you’re working on right now?
 

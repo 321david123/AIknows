@@ -7,6 +7,12 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import LoadingVideo from "./ui/loadvid";
 
+type QuizEntry = {
+  question: string;
+  answer: string;
+  serpResult?: string;
+};
+
 export default function QuizScreen() {
   // Always call hooks unconditionally
   const { data: session, status } = useSession();
@@ -14,6 +20,8 @@ export default function QuizScreen() {
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [answers, setAnswers] = useState<string[]>([]);
   const [questions, setQuestions] = useState<string[]>([]);
+
+  const [quizData, setQuizData] = useState<QuizEntry[]>([]);
 
   const [userId, setUserId] = useState<string | null>(null);
 
@@ -117,20 +125,25 @@ export default function QuizScreen() {
 
         if (data?.gpt?.matched) {
           const followups = Array(data.gpt.number_of_questions).fill(null).map((_, i) => `Question ${i + 1}`);
-          setQuestions([
+          const allQuestions = [
             "What's your full name?",
             plainGreeting,
             data.gpt.first_question,
             ...followups.slice(1),
-          ]);
+          ];
+          setQuestions(allQuestions);
+          setQuizData(allQuestions.map((q) => ({ question: q, answer: "" })));
         } else {
           const followups = Array(data.gpt.number_of_questions).fill(null).map((_, i) => `Question ${i + 1}`);
-          setQuestions([
+          const allQuestions = [
             "What's your full name?",
             intro,
+            data.gpt.first_question,
             "We couldn't find you online. Let's create a profile from scratch.",
             ...followups,
-          ]);
+          ];
+          setQuestions(allQuestions);
+          setQuizData(allQuestions.map((q) => ({ question: q, answer: "" })));
         }
 
         setCurrentQuestion(1);
@@ -166,7 +179,7 @@ export default function QuizScreen() {
                 newQuestions[currentQuestion + 1] = data.nextQuestions[0];
               } else {
                 newQuestions[currentQuestion + 1] =
-                  "Can you share another insight about your work experience?";
+                  "asdasdasdCan you share another insight about your work experience?";
               }
             } else {
               newQuestions.push(data.nextQuestions[0]);
@@ -186,7 +199,7 @@ export default function QuizScreen() {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             name: session?.user?.name || "Anonymous",
-            answers,
+            answers: quizData,
             summary: "To be generated",  // Placeholder if no summary is set
             traits: [],
             public_data: {}
@@ -194,6 +207,16 @@ export default function QuizScreen() {
         });
         router.push("/profile");
       } else {
+        // Update quizData with answer
+        setQuizData((prev) => {
+          const updated = [...prev];
+          updated[currentQuestion] = {
+            ...updated[currentQuestion],
+            answer: answerToSend,
+          };
+          console.log("Stored question/answer pair:", updated[currentQuestion]);
+          return updated;
+        });
         // Reset the answer for the current question right after advancing
         setCurrentQuestion(currentQuestion + 1);
         setAnswers((prev) => {
