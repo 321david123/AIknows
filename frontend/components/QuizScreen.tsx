@@ -1,5 +1,7 @@
 "use client";
 
+// User context state for geo/language/hour/fingerprint
+
 import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
@@ -34,6 +36,8 @@ export default function QuizScreen() {
   const [buttonClicked, setButtonClicked] = useState(false);
 
   const [totalQuestions, setTotalQuestions] = useState<number | null>(null);
+
+  const [userContext, setUserContext] = useState<{ region?: string; country?: string; language?: string; hour?: number; fingerprint?: string }>({});
 
   useEffect(() => {
     if (typeof window !== "undefined") {
@@ -79,6 +83,39 @@ export default function QuizScreen() {
     }
   }, [currentQuestion, questions, startGreeting]);
 
+  // Collect basic user context: region, country, language, hour, fingerprint
+  useEffect(() => {
+    async function fetchContext() {
+      try {
+        const geo = await fetch("https://ipapi.co/json/").then(res => res.json());
+        const language = navigator.language || "en-US";
+        const hour = new Date().getHours();
+        let fingerprint = localStorage.getItem("fingerprint_id");
+        if (!fingerprint) {
+          fingerprint = crypto.randomUUID();
+          localStorage.setItem("fingerprint_id", fingerprint);
+        }
+        setUserContext({
+          region: 'Guanajuato',
+          country: 'Mexico',
+          language,
+          hour,
+          fingerprint,
+        });
+        console.log("User context:", {
+          region: geo.region,
+          country: geo.country_name,
+          language,
+          hour,
+          fingerprint,
+        });
+      } catch (err) {
+        console.warn("Geo/location context unavailable:", err);
+      }
+    }
+    fetchContext();
+  }, []);
+
   if (status === "loading" || questions.length === 0) {
     return <LoadingVideo />;
   }
@@ -100,7 +137,11 @@ export default function QuizScreen() {
         const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/whoami`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name, user_id: userId }),
+          body: JSON.stringify({
+            name,
+            user_id: userId,
+            context: userContext,
+          }),
         });
 
         if (!res.ok) {

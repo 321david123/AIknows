@@ -142,6 +142,7 @@ async def submit_profile(payload: ProfilePayload):
 class WhoAmIRequest(BaseModel):
     name: str
     user_id: str = None  # To associate follow-up questions with user/session
+    context: dict = {}
 
 
 def is_well_known(summary: str) -> bool:
@@ -163,9 +164,16 @@ def is_well_known(summary: str) -> bool:
 @app.post("/whoami")
 async def who_am_i(payload: WhoAmIRequest):
     try:
-        serp_url = (
-            f"https://serpapi.com/search.json?q={payload.name}&api_key={SERP_API_KEY}"
-        )
+        region = payload.context.get("region") if payload.context else None
+        country = payload.context.get("country") if payload.context else None
+
+        search_query = payload.name
+        if region:
+            search_query += f" {region}"
+        elif country:
+            search_query += f" {country}"
+
+        serp_url = f"https://serpapi.com/search.json?q={search_query}&api_key={SERP_API_KEY}"
         serp_response = requests.get(serp_url)
         serp_response.raise_for_status()  # Raises error for non-2xx responses
         results = serp_response.json()
