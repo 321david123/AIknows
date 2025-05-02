@@ -25,6 +25,8 @@ export default function QuizScreen() {
   // Button click state for feedback
   const [buttonClicked, setButtonClicked] = useState(false);
 
+  const [totalQuestions, setTotalQuestions] = useState<number | null>(null);
+
   useEffect(() => {
     if (typeof window !== "undefined") {
       const stored = localStorage.getItem("user_id");
@@ -72,10 +74,11 @@ export default function QuizScreen() {
   if (status === "loading" || questions.length === 0) {
     return <LoadingVideo />;
   }
-  const progress = ((currentQuestion + 1) / questions.length) * 100;
+  const progress = totalQuestions
+    ? ((Math.max(currentQuestion - 2, 0) + 1) / totalQuestions) * 100
+    : ((currentQuestion + 1) / questions.length) * 100;
 
   const handleNext = async () => {
-    setButtonClicked(true);
     const answerToSend = answers[currentQuestion];
     if (currentQuestion === 0) {
       const name = answerToSend.trim();
@@ -83,6 +86,7 @@ export default function QuizScreen() {
         alert("Please enter your full name to continue.");
         return;
       }
+      setButtonClicked(true);
 
       try {
         const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/whoami`, {
@@ -107,17 +111,25 @@ export default function QuizScreen() {
         setTypedGreeting("");
         const plainGreeting = greeting.replace(/<[^>]+>/g, "");
 
+        if (data?.gpt?.number_of_questions) {
+          setTotalQuestions(data.gpt.number_of_questions + 1); // +1 to include name, second entry is not a real question
+        }
+
         if (data?.gpt?.matched) {
+          const followups = Array(data.gpt.number_of_questions).fill(null).map((_, i) => `Question ${i + 1}`);
           setQuestions([
             "What's your full name?",
             plainGreeting,
             data.gpt.first_question,
+            ...followups.slice(1),
           ]);
         } else {
+          const followups = Array(data.gpt.number_of_questions).fill(null).map((_, i) => `Question ${i + 1}`);
           setQuestions([
             "What's your full name?",
             intro,
             "We couldn't find you online. Let's create a profile from scratch.",
+            ...followups,
           ]);
         }
 
@@ -133,6 +145,7 @@ export default function QuizScreen() {
     try {
       // Skip backend call for intro or summary questions (e.g., question 1 or 2 after name)
       if (currentQuestion > 1) {
+        setButtonClicked(true);
         const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/submit-answer`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -201,6 +214,9 @@ export default function QuizScreen() {
       transition={{ duration: 0.5 }}
       className="quiz-screen"
     >
+      <div className="progress-bar-label" style={{ marginBottom: "4px", fontSize: "0.85rem", color: "#ccc" }}>
+        {Math.max(currentQuestion - 2, 0) + 1} of {(currentQuestion <= 1 && (!totalQuestions || totalQuestions === 1)) ? "?" : totalQuestions || questions.length} questions answered
+      </div>
       <div className="progress-bar">
         <div className="progress-bar-fill" style={{ width: `${progress}%` }} />
       </div>
@@ -243,6 +259,7 @@ export default function QuizScreen() {
           className="quiz-input"
           value={answers[currentQuestion] || ""}
           onChange={(e) => {
+            setButtonClicked(false);
             const newAnswers = [...answers];
             newAnswers[currentQuestion] = e.target.value;
             setAnswers(newAnswers);
@@ -253,7 +270,9 @@ export default function QuizScreen() {
               handleNext();
             }
           }}
-          placeholder="Bill Gates..."
+          placeholder="Type your answer here..."
+          autoFocus
+          autoComplete="off"  
         />
       )}
       
@@ -265,7 +284,7 @@ export default function QuizScreen() {
             disabled={currentQuestion !== 1 && !answers[currentQuestion]}
           >
             <>
-              Next{buttonClicked && (
+              Next{buttonClicked && currentQuestion !== 1 && answers[currentQuestion] && (
                 <span className="dots-loader">
                   <span className="dot" />
                   <span className="dot" />
@@ -343,6 +362,11 @@ export default function QuizScreen() {
           0% { text-shadow: 0 0 5px gold; }
           50% { text-shadow: 0 0 15px gold; }
           100% { text-shadow: 0 0 5px gold; }
+        }
+
+        .progress-bar-label {
+          text-align: center;
+          font-weight: 500;
         }
       `}</style>
     </motion.div>
