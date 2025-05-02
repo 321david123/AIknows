@@ -16,6 +16,9 @@ type QuizEntry = {
 };
 
 export default function QuizScreen() {
+  useEffect(() => {
+    alert("⚠️ AIknows.me is currently under development. Please go to github and try with the local version.");
+  }, []);
   // Always call hooks unconditionally
   const { data: session, status } = useSession();
   const router = useRouter();
