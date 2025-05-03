@@ -96,8 +96,8 @@ export default function QuizScreen() {
           localStorage.setItem("fingerprint_id", fingerprint);
         }
         setUserContext({
-          region: 'Guanajuato',
-          country: 'Mexico',
+          region: 'United states',
+          // country: 'netherlands',
           language,
           hour,
           fingerprint,
@@ -207,11 +207,17 @@ export default function QuizScreen() {
             answer: answerToSend,
             question_id: currentQuestion + 1,
             user_id: userId,
+            context: {
+              name: answers[0], // Full name from first answer
+              history: quizData.map((q) => q.answer).filter(Boolean), // All previous answers
+              last_question: questions[currentQuestion] // The current question being answered
+            }
           }),
         });
         const data = await res.json();
         console.log("Response from backend:", data);
 
+        // Existing logic for adding nextQuestions (may be for unknown users)
         if (data.nextQuestions && data.nextQuestions.length > 0) {
           setQuestions((prevQuestions) => {
             const newQuestions = [...prevQuestions];
@@ -219,8 +225,7 @@ export default function QuizScreen() {
               if (!newQuestions.includes(data.nextQuestions[0])) {
                 newQuestions[currentQuestion + 1] = data.nextQuestions[0];
               } else {
-                newQuestions[currentQuestion + 1] =
-                  "asdasdasdCan you share another insight about your work experience?";
+                newQuestions[currentQuestion + 1] = "asdasdasdCan you share another insight about your work experience?";
               }
             } else {
               newQuestions.push(data.nextQuestions[0]);
@@ -230,6 +235,21 @@ export default function QuizScreen() {
         } else {
           console.warn("No new questions returned from backend.");
         }
+
+        // --- Insert GPT follow-up question logic for known users after answering first GPT-based question ---
+        // This logic is applied after questions are populated for known users
+        if (data.nextQuestions && data.nextQuestions.length > 0) {
+          setQuestions((prevQuestions) => {
+            const newQuestions = [...prevQuestions];
+            if (currentQuestion + 1 < newQuestions.length) {
+              newQuestions[currentQuestion + 1] = data.nextQuestions[0];
+            } else {
+              newQuestions.push(data.nextQuestions[0]);
+            }
+            return newQuestions;
+          });
+        }
+        // --- End GPT follow-up logic ---
       }
 
       // If it's the last question, process and then redirect to the profile.
@@ -258,6 +278,30 @@ export default function QuizScreen() {
           console.log("Stored question/answer pair:", updated[currentQuestion]);
           return updated;
         });
+
+        // Determine if user is not well-known (i.e., not matched)
+        const knownStatus = quizData[1]?.question && !quizData[1]?.question.toLowerCase().includes("couldn't find you online");
+        if (knownStatus === false) {
+          try {
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/enhanced-whoami`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                name: answers[0], // Full name
+                answers: answers.slice(0, 5), // First 5 answers to enrich the search
+                summary: "",
+                traits: [],
+                public_data: {}
+              }),
+            });
+            const enhancedData = await res.json();
+            console.log("Enhanced GPT summary:", enhancedData.summary);
+            // Optionally store in state if needed
+          } catch (err) {
+            console.warn("Enhanced WhoAmI lookup failed", err);
+          }
+        }
+
         // Reset the answer for the current question right after advancing
         setCurrentQuestion(currentQuestion + 1);
         setAnswers((prev) => {

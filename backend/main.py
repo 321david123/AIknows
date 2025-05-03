@@ -41,6 +41,10 @@ class AnswerPayload(BaseModel):
     answer: str
     question_id: int
     user_id: str = None  # Assuming we get a user_id or session id to track followups
+    # New fields for more context from frontend
+    history: list[str] = []
+    last_question: str = ""
+    name: str = ""
 
 
 def process_answer(question_id, answer):
@@ -69,11 +73,41 @@ def generate_profile_report():
 async def submit_answer(payload: AnswerPayload):
     try:
         process_answer(payload.question_id, payload.answer)
-        next_questions = get_next_questions(payload.user_id)
-        if not next_questions:
-            next_questions = ["What motivates you to excel in your career?"]
+        if payload.user_id in user_followup_questions:
+            session = user_followup_questions[payload.user_id]
+            # Always append the answer to the session's answers array
+            session["answers"].append(payload.answer)
 
-        return {"nextQuestions": next_questions}
+            if session["remaining"] > 0:
+                session["remaining"] -= 1
+
+                # Use name, history, and last_question in the prompt
+                followup_prompt = f"""
+This person is named {payload.name}.
+Based on the original summary: "{session['summary']}" and the previous answers: {session['answers']},
+the last question was: "{payload.last_question}" and the user responded: "{payload.answer}".
+
+Generate the next best question to better understand this person in a friendly and insightful way.
+Return only the question, no formatting.
+"""
+                # Add print statement for debugging
+                print("GPT Follow-up Prompt:\n", followup_prompt)
+
+                gpt_response = client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[{"role": "user", "content": followup_prompt}],
+                    temperature=0.7,
+                )
+                next_question = gpt_response.choices[0].message.content
+                return {"nextQuestions": [next_question]}
+            else:
+                return {"nextQuestions": []}
+        else:
+            next_questions = get_next_questions(payload.user_id)
+            if not next_questions:
+                next_questions = ["What motivates you to excel in your career?"]
+
+            return {"nextQuestions": next_questions}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -145,6 +179,13 @@ class WhoAmIRequest(BaseModel):
     context: dict = {}
 
 
+class EnhancedWhoAmIRequest(BaseModel):
+    name: str
+    user_id: str = None
+    context: dict = {}
+    answers: list[str] = []
+
+
 def is_well_known(summary: str) -> bool:
     summary_lower = summary.lower()
     return any(
@@ -202,10 +243,10 @@ async def who_am_i(payload: WhoAmIRequest):
 
         gpt_followup_prompt = f"""
   Based on this summary: "{summary}", determine:
-  1. If this person is well known.
+  1. If this person is well known. (if the are well known return true, but if you are not sure or its not known return false)
   2. How many follow-up questions are needed (if its a more known person obviusly is gonna need less questions that someone new that we dont know. if its unknown the questions should be more (around 6))(between 2 and 7).
   3. Provide only the first question to ask them., for this first question: write 1 insightful and friendly follow-up questions to better understand this person’s values and mindset, be more personal if the individual is well known (more about their lifestyle). ask the question to the person that the information was about (Just ask the question, do not answer it, neither add anything else, no introduction neither).
-  And if its a not-known person or new user use this method: Write 1 insightful and friendly questions to better understand a new user, Write 1 insightful and friendly questions to better understand a new user, using this style: “What’s the biggest goal you’re working on right now?
+  And if you are *not sure* or its a not-known person or new user use this method: Write 1 insightful and friendly questions to better understand a new user, you can use this template or modify it depending on the infromation you got from the summary: Which field or profession are you most associated with? (something that can be helpfull in a google search to find this person)
 
   Return in this exact JSON format:
   {{
@@ -236,6 +277,8 @@ async def who_am_i(payload: WhoAmIRequest):
             user_followup_questions[payload.user_id] = {
                 "remaining": followup_data["number_of_questions"] - 1,
                 "total": followup_data["number_of_questions"],
+                "summary": summary,
+                "answers": []
             }
 
         return {
@@ -249,4 +292,81 @@ async def who_am_i(payload: WhoAmIRequest):
         }
     except Exception as e:
         print("Error in /whoami:", str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# --- New enhanced-whoami endpoint ---
+@app.post("/enhanced-whoami")
+async def enhanced_who_am_i(payload: EnhancedWhoAmIRequest):
+    try:
+        search_query = payload.name
+        if payload.context.get("region"):
+            search_query += f" {payload.context['region']}"
+        elif payload.context.get("country"):
+            search_query += f" {payload.context['country']}"
+
+        for answer in payload.answers[:5]:  # Use only the first 5 answers
+            search_query += f" {answer}"
+
+        serp_url = f"https://serpapi.com/search.json?q={search_query}&api_key={SERP_API_KEY}"
+        serp_response = requests.get(serp_url)
+        serp_response.raise_for_status()
+        results = serp_response.json()
+        organic_results = results.get("organic_results", [])
+
+        snippets = []
+        for result in organic_results[:5]:
+            title = result.get("title", "")
+            snippet = result.get("snippet", "")
+            snippets.append(f"{title}: {snippet}")
+        search_summary = "\n".join(snippets)
+
+        gpt_prompt = f"Based on this search information, does this describe a well-known person named '{payload.name}'? Give a short summary:\n{search_summary}"
+        gpt_response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": gpt_prompt}],
+            temperature=0.6,
+        )
+        summary = gpt_response.choices[0].message.content
+
+        gpt_followup_prompt = f'''
+Based on this summary: "{summary}", determine:
+1. If this person is well known. (return true if sure, false if unsure or not known)
+2. How many follow-up questions are needed (between 2 and 7).
+3. Provide only the next best question to ask them.
+
+Return in this exact JSON format:
+{{
+  "matched": true or false,
+  "number_of_questions": X,
+  "first_question": "..."
+}}        
+        '''
+        followup_response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": gpt_followup_prompt}],
+            temperature=0.7,
+        )
+        followup_data_raw = followup_response.choices[0].message.content
+        followup_data = json.loads(followup_data_raw)
+
+        if payload.user_id:
+            user_followup_questions[payload.user_id] = {
+                "remaining": followup_data["number_of_questions"] - 1,
+                "total": followup_data["number_of_questions"],
+                "summary": summary,
+                "answers": []
+            }
+
+        return {
+            "searchResults": organic_results,
+            "gpt": {
+                "matched": followup_data["matched"],
+                "summary": summary,
+                "number_of_questions": followup_data["number_of_questions"],
+                "first_question": followup_data["first_question"],
+            },
+        }
+    except Exception as e:
+        print("Error in /enhanced-whoami:", str(e))
         raise HTTPException(status_code=500, detail=str(e))
