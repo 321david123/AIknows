@@ -4,28 +4,78 @@ import { useState, useEffect } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { Download, Share2 } from "lucide-react";
-import { useSession } from "next-auth/react";
 
 export default function ProfileScreen() {
-  const { data: session, status } = useSession();
   const [report, setReport] = useState("");
   const [traits, setTraits] = useState<string[]>([]);
   const [publicData, setPublicData] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [recommendations, setRecommendations] = useState<string[]>([]);
+  const [personalityImage, setPersonalityImage] = useState<string | null>(null);
 
   // Fetch the personalized profile report from the backend.
   useEffect(() => {
+    localStorage.removeItem("profileImageUrl");
+    const storedImageUrl = localStorage.getItem("profileImageUrl");
+
     async function fetchReport() {
       try {
+        // TEMP: Use dummy payload that matches backend format
+        const storedAnswers = [
+          { question: "What’s your full name?", answer: "John Doe" },
+          { question: "What drives you?", answer: "Helping people through technology." },
+          { question: "What excites you most about the future?", answer: "The potential of AI in medicine." }
+        ];
+        const storedSummary =
+          "John is a driven individual passionate about leveraging technology to improve lives, especially through AI in healthcare.";
+
+        if (!Array.isArray(storedAnswers)) {
+          console.error("storedAnswers is not an array:", storedAnswers);
+          setLoading(false);
+          return;
+        }
+
+        if (storedAnswers.length === 0 || storedAnswers.some(a => typeof a !== 'object' || !a.question || !a.answer)) {
+          console.error("Invalid or incomplete answers:", storedAnswers);
+          setLoading(false);
+          return;
+        }
+
+        if (typeof storedSummary !== "string" || !storedSummary.trim()) {
+          console.error("Invalid or empty summary:", storedSummary);
+          setLoading(false);
+          return;
+        }
+
+        console.log("Sending answers to backend:", storedAnswers);
+        console.log("Sending summary to backend:", storedSummary);
+
         const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/generate-report`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ dummy: "none" }),
+          body: JSON.stringify({
+            name: "John Doe",
+            summary: storedSummary,
+            answers: storedAnswers.map(a => `${a.question}: ${a.answer}`)
+          }),
         });
+
+        if (!res.ok) {
+          const errorData = await res.json().catch(() => ({}));
+          console.error("Report generation failed:", res.status, res.statusText, errorData);
+          setLoading(false);
+          return;
+        }
+
         const data = await res.json();
         setReport(data.report);
         if (data.traits) setTraits(data.traits);
         if (data.public_data) setPublicData(data.public_data);
+        if (data.recommendations) setRecommendations(data.recommendations);
+        setPersonalityImage(data.image_url || storedImageUrl);
+        if (data.image_url) {
+          localStorage.setItem("profileImageUrl", data.image_url);
+        }
       } catch (error) {
         console.error("Error fetching report:", error);
       } finally {
@@ -35,7 +85,7 @@ export default function ProfileScreen() {
     fetchReport();
   }, []);
 
-  if (status === "loading" || loading) {
+  if (loading) {
     return <p>Loading report...</p>;
   }
 
@@ -54,21 +104,6 @@ export default function ProfileScreen() {
     >
       <h1 className="profile-title">Your AI tailored Profile</h1>
       
-      {/* User Image */}
-      {session?.user?.image && (
-        <img
-          src={session.user.image}
-          alt={session.user.name ?? "User"}
-          style={{
-            width: "150px",
-            height: "150px",
-            borderRadius: "50%",
-            objectFit: "cover",
-            marginBottom: "1rem",
-          }}
-        />
-      )}
-      
       {/* Personalized Report Section */}
       <div className="profile-report" style={{ marginBottom: "2rem" }}>
         <h2>Personalized Report</h2>
@@ -84,6 +119,23 @@ export default function ProfileScreen() {
         </pre>
       </div>
 
+      {personalityImage && (
+        <div style={{ marginBottom: "2rem" }}>
+          <h2>Personality Portrait</h2>
+          <img src={personalityImage} alt="AI-generated personality" style={{ width: "300px", borderRadius: "12px" }} />
+        </div>
+      )}
+
+      {recommendations.length > 0 && (
+        <div style={{ marginBottom: "2rem" }}>
+          <h2>AI Recommendations</h2>
+          <ul>
+            {recommendations.map((rec, idx) => (
+              <li key={idx}>{rec}</li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       {publicData && (
         <div style={{ marginBottom: "2rem" }}>
@@ -91,8 +143,6 @@ export default function ProfileScreen() {
           <p>{publicData}</p>
         </div>
       )}
-
-
 
       {/* Profile Actions */}
       <div

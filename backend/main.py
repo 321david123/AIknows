@@ -65,8 +65,39 @@ def generate_personalized_recommendations():
     ]
 
 
-def generate_profile_report():
-    return "This is your generated profile summary based on your responses."
+def generate_profile_report_with_image(name, answers, summary):
+    prompt = f"""
+    This is a profile of a person named {name}. Here are their answers:
+    {answers}
+
+    Summary: {summary}
+
+    Based on this, write:
+    1. A short profile summary in third person.
+    2. Rate the uniqueness and social/technical impact of this person from 1 to 10.
+    3. Suggest a symbolic visual prompt for DALL·E that reflects their personality and goals, with tone (e.g., gold if 9-10, muted if 1-4).
+    Return as JSON:
+    {{
+      "summary": "...",
+      "uniqueness_score": 0,
+      "image_prompt": "..."
+    }}
+    """
+
+    print("PROFILE GENERATION PROMPT:", prompt)
+
+    response = client.chat.completions.create(
+        model="gpt-3.5-turbo",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.7,
+    )
+    
+    try:
+        profile_data = json.loads(response.choices[0].message.content)
+        print("Parsed Profile Data:", profile_data)
+        return profile_data
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=500, detail="Failed to parse profile JSON")
 
 
 @app.post("/submit-answer")
@@ -126,8 +157,6 @@ async def submit_answer(payload: AnswerPayload):
         raise HTTPException(status_code=500, detail=str(e))
 
 
-class ReportRequest(BaseModel):
-    dummy: str = "none"
 
 
 class ProfilePayload(BaseModel):
@@ -139,11 +168,14 @@ class ProfilePayload(BaseModel):
 
 
 @app.post("/generate-report")
-async def generate_report_endpoint(payload: ReportRequest):
+async def generate_report_endpoint(payload: ProfilePayload):
     try:
-        report_text = generate_profile_report()
-        recommendations = generate_personalized_recommendations()
-        return {"report": report_text, "recommendations": recommendations}
+        profile_data = generate_profile_report_with_image(payload.name, payload.answers, payload.summary)
+        return {
+            "report": profile_data["summary"],
+            "uniqueness_score": profile_data["uniqueness_score"],
+            "image_prompt": profile_data["image_prompt"]
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -151,7 +183,8 @@ async def generate_report_endpoint(payload: ReportRequest):
 @app.get("/download-report")
 async def download_report():
     try:
-        report_text = generate_profile_report()
+        report_data = generate_profile_report_with_image(name="Anonymous", answers=[], summary="")
+        report_text = report_data["summary"]
         pdf = FPDF()
         pdf.add_page()
         pdf.set_font("Arial", size=12)
@@ -260,7 +293,7 @@ async def who_am_i(payload: WhoAmIRequest):
         gpt_followup_prompt = f"""
   Based on this summary: "{summary}", determine:
   1. If this person is well known. (if the are well known return true, but if you are not sure or its not known return false)
-  2. How many follow-up questions are needed (if its a more known person obviusly is gonna need less questions that someone new that we dont know. if its unknown the questions should be more (around 6))(between 2 and 7).
+  2. How many follow-up questions are needed (if its a more known person obviusly is gonna need less questions (2 questions) that someone new that we dont know. if its unknown the questions should be more (around 7)
   3. Provide only the first question to ask them., for this first question: write 1 insightful and friendly follow-up questions to better understand this person’s values and mindset, be more personal if the individual is well known (more about their lifestyle). ask the question to the person that the information was about (Just ask the question, do not answer it, neither add anything else, no introduction neither).
   And if you are *not sure* or its a not-known person or new user use this method: Write 1 insightful and friendly questions to better understand a new user, you can use this template or modify it depending on the infromation you got from the summary: Which field or profession are you most associated with? (something that can be helpfull in a google search to find this person)
 

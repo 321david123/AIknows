@@ -22,11 +22,8 @@ export default function QuizScreen() {
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [answers, setAnswers] = useState<string[]>([]);
   const [questions, setQuestions] = useState<string[]>([]);
-
   const [quizData, setQuizData] = useState<QuizEntry[]>([]);
-
   const [userId, setUserId] = useState<string | null>(null);
-
   const [typedGreeting, setTypedGreeting] = useState("");
   const [typedIntro, setTypedIntro] = useState("");
   const [finalGreetingHTML, setFinalGreetingHTML] = useState("");
@@ -34,9 +31,7 @@ export default function QuizScreen() {
 
   // Button click state for feedback
   const [buttonClicked, setButtonClicked] = useState(false);
-
   const [totalQuestions, setTotalQuestions] = useState<number | null>(null);
-
   const [userContext, setUserContext] = useState<{ region?: string; country?: string; language?: string; hour?: number; fingerprint?: string }>({});
 
   useEffect(() => {
@@ -96,8 +91,7 @@ export default function QuizScreen() {
           localStorage.setItem("fingerprint_id", fingerprint);
         }
         setUserContext({
-          region: 'United states',
-          // country: 'netherlands',
+          region: geo.region,
           language,
           hour,
           fingerprint,
@@ -131,6 +125,12 @@ export default function QuizScreen() {
         alert("Please enter your full name to continue.");
         return;
       }
+      // Store the name as the first answer
+      setAnswers((prev) => {
+        const updated = [...prev];
+        updated[0] = name;
+        return updated;
+      });
       setButtonClicked(true);
 
       try {
@@ -253,21 +253,14 @@ export default function QuizScreen() {
         // --- End GPT follow-up logic ---
       }
 
-      // If it's the last question, process and then redirect to the profile.
+      // If it's the last question, save answers and navigate to the profile screen
       if (currentQuestion >= questions.length - 1) {
-        // Submit profile before navigating
-        await fetch(`${process.env.NEXT_PUBLIC_API_URL}/submit-profile`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: session?.user?.name || "Anonymous",
-            answers: quizData,
-            summary: "To be generated",  // Placeholder if no summary is set
-            traits: [],
-            public_data: {}
-          }),
-        });
+        if (typeof window !== "undefined") {
+          localStorage.setItem("quizAnswers", JSON.stringify(quizData));
+          localStorage.setItem("quizSummary", "placeholder-summary");
+        }
         router.push("/profile");
+        return;
       } else {
         // Update quizData with answer
         setQuizData((prev) => {
