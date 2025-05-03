@@ -199,6 +199,7 @@ export default function QuizScreen() {
     try {
       // Skip backend call for intro or summary questions (e.g., question 1 or 2 after name)
       if (currentQuestion > 1) {
+        console.log("Submitting answer for question:", questions[currentQuestion]);
         setButtonClicked(true);
         const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/submit-answer`, {
           method: "POST",

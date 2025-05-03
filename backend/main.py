@@ -82,14 +82,28 @@ async def submit_answer(payload: AnswerPayload):
                 session["remaining"] -= 1
 
                 # Use name, history, and last_question in the prompt
-                followup_prompt = f"""
-This person is named {payload.name}.
-Based on the original summary: "{session['summary']}" and the previous answers: {session['answers']},
-the last question was: "{payload.last_question}" and the user responded: "{payload.answer}".
+                if len(session["answers"]) == 1:
+                    followup_prompt = f"""
+                    This person is named {payload.name}.
+                    Based on the original summary: "{session['summary']}" and the previous answers: {session['answers']},
+                    the last question was: "{payload.last_question}" and the user responded: "{payload.answer}".
 
-Generate the next best question to better understand this person in a friendly and insightful way.
-Return only the question, no formatting.
-"""
+                    Generate the next best question to better understand this person in a friendly and insightful way.
+                    Return only the question, no formatting.
+                    """
+                else:
+                    followup_prompt = f"""
+                    This person is named {payload.name}.
+
+                    Here’s what we know so far:
+                    Summary: "{session['summary']}"
+                    Answers: {session['answers']}
+                    Last question: "{payload.last_question}"
+                    Their last answer: "{payload.answer}"
+
+                    Based on that, write a deeper or more reflective follow-up question. Vary the tone or topic — make it feel fresh, not repetitive.
+                    Return only the question, no formatting.
+                    """
                 # Add print statement for debugging
                 print("GPT Follow-up Prompt:\n", followup_prompt)
 
@@ -214,7 +228,9 @@ async def who_am_i(payload: WhoAmIRequest):
         elif country:
             search_query += f" {country}"
 
-        serp_url = f"https://serpapi.com/search.json?q={search_query}&api_key={SERP_API_KEY}"
+        serp_url = (
+            f"https://serpapi.com/search.json?q={search_query}&api_key={SERP_API_KEY}"
+        )
         serp_response = requests.get(serp_url)
         serp_response.raise_for_status()  # Raises error for non-2xx responses
         results = serp_response.json()
@@ -278,7 +294,7 @@ async def who_am_i(payload: WhoAmIRequest):
                 "remaining": followup_data["number_of_questions"] - 1,
                 "total": followup_data["number_of_questions"],
                 "summary": summary,
-                "answers": []
+                "answers": [],
             }
 
         return {
@@ -308,7 +324,9 @@ async def enhanced_who_am_i(payload: EnhancedWhoAmIRequest):
         for answer in payload.answers[:5]:  # Use only the first 5 answers
             search_query += f" {answer}"
 
-        serp_url = f"https://serpapi.com/search.json?q={search_query}&api_key={SERP_API_KEY}"
+        serp_url = (
+            f"https://serpapi.com/search.json?q={search_query}&api_key={SERP_API_KEY}"
+        )
         serp_response = requests.get(serp_url)
         serp_response.raise_for_status()
         results = serp_response.json()
@@ -329,7 +347,7 @@ async def enhanced_who_am_i(payload: EnhancedWhoAmIRequest):
         )
         summary = gpt_response.choices[0].message.content
 
-        gpt_followup_prompt = f'''
+        gpt_followup_prompt = f"""
 Based on this summary: "{summary}", determine:
 1. If this person is well known. (return true if sure, false if unsure or not known)
 2. How many follow-up questions are needed (between 2 and 7).
@@ -341,7 +359,7 @@ Return in this exact JSON format:
   "number_of_questions": X,
   "first_question": "..."
 }}        
-        '''
+        """
         followup_response = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": gpt_followup_prompt}],
@@ -355,7 +373,7 @@ Return in this exact JSON format:
                 "remaining": followup_data["number_of_questions"] - 1,
                 "total": followup_data["number_of_questions"],
                 "summary": summary,
-                "answers": []
+                "answers": [],
             }
 
         return {
