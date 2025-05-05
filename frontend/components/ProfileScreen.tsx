@@ -13,6 +13,10 @@ export default function ProfileScreen() {
   const [recommendations, setRecommendations] = useState<string[]>([]);
   const [personalityImage, setPersonalityImage] = useState<string | null>(null);
 
+  // State for TRON-style animation progress and line positions
+  const [progress, setProgress] = useState(0);
+  const [linePositions, setLinePositions] = useState<{ left: string; top: string; animationDelay: string }[]>([]);
+
   // Fetch the personalized profile report from the backend.
   useEffect(() => {
     localStorage.removeItem("profileImageUrl");
@@ -85,8 +89,110 @@ export default function ProfileScreen() {
     fetchReport();
   }, []);
 
+  // Initialize line positions once on mount
+  useEffect(() => {
+    const totalLines = 23; // max lines (3 + 20)
+    const positions = Array.from({ length: totalLines }).map(() => ({
+      left: `${Math.random() * 100}%`,
+      top: `${Math.random() * 100}%`,
+      animationDelay: `${Math.random() * 2}s`,
+    }));
+    setLinePositions(positions);
+  }, []);
+
+  // Effect to increase progress over time for TRON animation
+  useEffect(() => {
+    if (!loading) return;
+    const interval = setInterval(() => {
+      setProgress((prev) => (prev < 100 ? prev + 10 : prev));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [loading]);
+
   if (loading) {
-    return <p>Loading report...</p>;
+    const numLines = Math.floor(progress / 5) + 3;
+    return (
+      <div
+        style={{
+          minHeight: "100vh",
+          display: "flex",
+          flexDirection: "column",
+          justifyContent: "center",
+          alignItems: "center",
+          fontFamily: "sans-serif",
+          background: "radial-gradient(ellipse at center, #111 0%, #000 100%)",
+          overflow: "hidden",
+          position: "relative",
+        }}
+      >
+        {/* TRON-style animated lines background */}
+        <div className="lines-container">
+          {linePositions.slice(0, numLines).map((pos, idx) => (
+            <div
+              key={idx}
+              className="glow-line"
+              style={{
+                left: pos.left,
+                top: pos.top,
+                animationDelay: pos.animationDelay,
+                animationDuration: `${3 - Math.min(progress / 50, 2)}s`,
+              }}
+            />
+          ))}
+        </div>
+
+        {/* Static Loading Text */}
+        <h2 style={{ color: "white", zIndex: 1, fontSize: "1.8rem" }}>
+          Creating your AI Profile...
+        </h2>
+
+        {/* CSS Keyframe Animations */}
+        <style jsx>{`
+          .lines-container {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            z-index: 0;
+          }
+          .glow-line {
+            position: absolute;
+            width: 2px;
+            height: 40px;
+            background: linear-gradient(to bottom, #00f0ff, transparent);
+            animation: moveLine 3s linear infinite;
+            opacity: 0;
+            animation-timing-function: ease-in-out;
+            animation-fill-mode: both;
+            transition: opacity 0.5s ease-in-out, transform 0.5s ease-in-out;
+            box-shadow: 0 0 8px #00f0ff, 0 0 15px #00f0ff;
+            border-radius: 1px;
+          }
+          @keyframes moveLine {
+            0% {
+              transform: translateY(-40px);
+              opacity: 0;
+            }
+            10% {
+              opacity: 0.2;
+            }
+            20% {
+              opacity: 0.8;
+            }
+            80% {
+              opacity: 0.8;
+            }
+            90% {
+              opacity: 0.2;
+            }
+            100% {
+              transform: translateY(200px);
+              opacity: 0;
+            }
+          }
+        `}</style>
+      </div>
+    );
   }
 
   return (
@@ -122,7 +228,16 @@ export default function ProfileScreen() {
       {personalityImage && (
         <div style={{ marginBottom: "2rem" }}>
           <h2>Personality Portrait</h2>
-          <img src={personalityImage} alt="AI-generated personality" style={{ width: "300px", borderRadius: "12px" }} />
+          <img
+            src={personalityImage}
+            alt="AI-generated personality"
+            style={{
+              width: "100%",
+              maxWidth: "600px",
+              borderRadius: "12px",
+              boxShadow: "0 4px 12px rgba(0, 0, 0, 0.1)"
+            }}
+          />
         </div>
       )}
 

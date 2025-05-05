@@ -76,20 +76,19 @@ Summary: {summary}
 Based on this, write:
 1. A short profile summary in third person.
 2. Rate the uniqueness and social/technical impact of this person from 1 to 10.
-3. Suggest a symbolic visual prompt for DALL·E that reflects their personality and goals.
-   The image must match our platform's brand: vibrant, glowing gradients with abstract forms.
-   - Avoid facial details. Focus on energy, symbolism, creativity.
-   - Use flowing textures, tech-inspired motion, and rich hues.
-   - If uniqueness >= 9, include a bold golden accent.
-   - If uniqueness >= 7, include soft golden glow.
-   - Otherwise, do not include gold.
+3. Suggest a visual prompt for DALL·E that:
+   -a gradient, Avoid faces or literal objects and shapes, its just a gradient. 
+   The image must be a simple gradient that keeps one color in the most part of the image.
+   - If uniqueness >= 9, incorporate golden streaks or vivid golden glow.
+   - If uniqueness >= 7, include subtle golden reflections.
+   - Otherwise, keep it simple one color.
 
 4. If this person is well-recognized (matched=True in previous logic), add the text: "Incredible Individual Badge" as a string in the response.
 
 Return as JSON:
 {{
   "summary": "...",
-  "uniqueness_score": 0,
+  "uniqueness_score": 9,
   "image_prompt": "...",
   "badge": "Incredible Individual Badge" or ""
 }}
@@ -109,7 +108,8 @@ Return as JSON:
         # Generate DALL·E image using the prompt
         dalle_response = client.images.generate(
             model="dall-e-3",
-            prompt=profile_data["image_prompt"],
+            prompt="Make an image: a gradient that covers the whole image, it can only be two colors and go from left to right, make it that one color is in the most part of the image",
+            # prompt=profile_data["image_prompt"],
             size="1024x1024",
             quality="standard",
             n=1
