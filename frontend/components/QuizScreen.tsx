@@ -28,6 +28,7 @@ export default function QuizScreen() {
   const [typedIntro, setTypedIntro] = useState("");
   const [finalGreetingHTML, setFinalGreetingHTML] = useState("");
   const [startGreeting, setStartGreeting] = useState(false);
+  const [knownUser, setKnownUser] = useState(false);
 
   // Button click state for feedback
   const [buttonClicked, setButtonClicked] = useState(false);
@@ -164,6 +165,8 @@ export default function QuizScreen() {
           setTotalQuestions(data.gpt.number_of_questions + 1); // +1 to include name, second entry is not a real question
         }
 
+        setKnownUser(!!data.gpt.matched);
+
         if (data?.gpt?.matched) {
           const followups = Array(data.gpt.number_of_questions).fill(null).map((_, i) => `Question ${i + 1}`);
           const allQuestions = [
@@ -201,7 +204,8 @@ export default function QuizScreen() {
       if (currentQuestion > 1) {
         console.log("Submitting answer for question:", questions[currentQuestion]);
         setButtonClicked(true);
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/submit-answer`, {
+        const endpoint = knownUser ? "/submit-known-answer" : "/submit-answer";
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}${endpoint}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({

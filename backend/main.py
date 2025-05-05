@@ -45,6 +45,7 @@ class AnswerPayload(BaseModel):
     history: list[str] = []
     last_question: str = ""
     name: str = ""
+    search_summary: str = ""
 
 
 def process_answer(question_id, answer):
@@ -67,22 +68,32 @@ def generate_personalized_recommendations():
 
 def generate_profile_report_with_image(name, answers, summary):
     prompt = f"""
-    This is a profile of a person named {name}. Here are their answers:
-    {answers}
+This is a profile of a person named {name}. Here are their answers:
+{answers}
 
-    Summary: {summary}
+Summary: {summary}
 
-    Based on this, write:
-    1. A short profile summary in third person.
-    2. Rate the uniqueness and social/technical impact of this person from 1 to 10.
-    3. Suggest a symbolic visual prompt for DALL·E that reflects their personality and goals, with tone (e.g., gold if 9-10, muted if 1-4).
-    Return as JSON:
-    {{
-      "summary": "...",
-      "uniqueness_score": 0,
-      "image_prompt": "..."
-    }}
-    """
+Based on this, write:
+1. A short profile summary in third person.
+2. Rate the uniqueness and social/technical impact of this person from 1 to 10.
+3. Suggest a symbolic visual prompt for DALL·E that reflects their personality and goals.
+   The image must match our platform's brand: vibrant, glowing gradients with abstract forms.
+   - Avoid facial details. Focus on energy, symbolism, creativity.
+   - Use flowing textures, tech-inspired motion, and rich hues.
+   - If uniqueness >= 9, include a bold golden accent.
+   - If uniqueness >= 7, include soft golden glow.
+   - Otherwise, do not include gold.
+
+4. If this person is well-recognized (matched=True in previous logic), add the text: "Incredible Individual Badge" as a string in the response.
+
+Return as JSON:
+{{
+  "summary": "...",
+  "uniqueness_score": 0,
+  "image_prompt": "...",
+  "badge": "Incredible Individual Badge" or ""
+}}
+"""
 
     print("PROFILE GENERATION PROMPT:", prompt)
 
@@ -95,6 +106,16 @@ def generate_profile_report_with_image(name, answers, summary):
     try:
         profile_data = json.loads(response.choices[0].message.content)
         print("Parsed Profile Data:", profile_data)
+        # Generate DALL·E image using the prompt
+        dalle_response = client.images.generate(
+            model="dall-e-3",
+            prompt=profile_data["image_prompt"],
+            size="1024x1024",
+            quality="standard",
+            n=1
+        )
+        image_url = dalle_response.data[0].url
+        profile_data["image_url"] = image_url
         return profile_data
     except json.JSONDecodeError:
         raise HTTPException(status_code=500, detail="Failed to parse profile JSON")
@@ -104,23 +125,164 @@ def generate_profile_report_with_image(name, answers, summary):
 async def submit_answer(payload: AnswerPayload):
     try:
         process_answer(payload.question_id, payload.answer)
+
+        # --- NEW LOGIC FOR Q3 GPT SEARCH QUERY & CLASSIFICATION ---
+        if payload.user_id:
+            session_data = user_followup_questions.get(payload.user_id)
+            if session_data and session_data.get("matched"):
+                print("User already matched — skipping GPT/SerpAPI logic.")
+                # Generate the next question directly based on session
+                search_summary = session_data.get("search_summary", "")
+                answers = session_data.get("answers", [])
+                followup_prompt = f"""
+                This person is named {payload.name}.
+                Based on the original summary: "{session_data['summary']}" and the previous answers: {answers} and the previous information found in the web search {search_summary},
+                the last question was: "{payload.last_question}" and the user responded: "{payload.answer}".
+
+                Generate the next best question to better understand this person in a friendly and insightful way (if now you know who they are, just go ahead and ask a focused question).
+                Return only the question, no formatting.
+                """
+                gpt_response = client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[{"role": "user", "content": followup_prompt}],
+                    temperature=0.7,
+                )
+                next_question = gpt_response.choices[0].message.content
+                session_data["answers"].append(payload.answer)
+                session_data["remaining"] = max(0, session_data["remaining"] - 1)
+                return {"nextQuestions": [next_question]}
+            elif payload.question_id == 3 and (not session_data or not session_data.get("matched")):
+                # Step 1: Ask GPT to generate a more precise search query
+                search_prompt = f"Given that the user answered Q3 with: '{payload.answer}', write a Google search query that could help us identify if the person named '{payload.name}' is well known. Be precise and concise."
+                print("Generating search query from GPT...")
+                search_gen = client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[{"role": "user", "content": search_prompt}],
+                    temperature=0.5,
+                )
+                suggested_query = search_gen.choices[0].message.content.strip()
+                print("[submit-answer] Suggested GPT query:", suggested_query)
+
+                # Step 2: Perform new SerpAPI search using GPT-generated query
+                serp_url = f"https://serpapi.com/search.json?q={suggested_query}&api_key={SERP_API_KEY}"
+                serp_response = requests.get(serp_url)
+                serp_response.raise_for_status()
+                results = serp_response.json()
+                print("Raw SerpAPI response parsed.")
+
+                organic_results = results.get("organic_results")
+                if not organic_results:
+                    raise ValueError("No organic_results found in SerpAPI response")
+
+                snippets = []
+                for result in organic_results[:5]:
+                    title = result.get("title", "")
+                    snippet = result.get("snippet", "")
+                    snippets.append(f"{title}: {snippet}")
+
+                search_summary = "\n".join(snippets)
+                print("Search Summary:", search_summary)
+
+                # Step 3: Ask GPT to summarize it in plain English
+                gpt_prompt = f"Based on this search information, does this describe a well-known person named '{payload.name}'? Give a short summary:\n{search_summary}"
+                gpt_response = client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[{"role": "user", "content": gpt_prompt}],
+                    temperature=0.6,
+                )
+                summary = gpt_response.choices[0].message.content
+                print("GPT Summary:", summary)
+
+                # Step 4: Classify the person
+                classification_prompt = f'''
+Based on this summary: "{search_summary}", determine:
+1. If this person is well known. (if they are well known return true, if not or uncertain return false)
+2. How many follow-up questions are needed (if known, return 2; if unknown, return around 7)
+3. Provide only the first question to ask them. Make it friendly, personal, and insightful.
+
+Return in this exact JSON format:
+{{
+  "matched": true or false,
+  "number_of_questions": X,
+  "first_question": "..."
+}}
+'''
+                print("[submit-answer] Classification prompt:\n", classification_prompt)
+                gpt_classify = client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[{"role": "user", "content": classification_prompt}],
+                    temperature=0.7,
+                )
+                print("[submit-answer] GPT raw classification response:\n", gpt_classify.choices[0].message.content)
+                try:
+                    result_data = json.loads(gpt_classify.choices[0].message.content)
+                    user_followup_questions[payload.user_id] = {
+                        "matched": result_data["matched"],
+                        "remaining": result_data["number_of_questions"] - 1,
+                        "total": result_data["number_of_questions"],
+                        "summary": search_summary,
+                        "answers": [],
+                        "search_summary": search_summary
+                    }
+                    return {"nextQuestions": [result_data["first_question"]]}
+                except json.JSONDecodeError:
+                    print("Failed to parse classification JSON.")
+        # --- END NEW LOGIC ---
+
         if payload.user_id in user_followup_questions:
             session = user_followup_questions[payload.user_id]
             # Always append the answer to the session's answers array
             session["answers"].append(payload.answer)
 
+            # Persist search_summary after first request
+            if "search_summary" not in session and payload.search_summary:
+                session["search_summary"] = payload.search_summary
+
             if session["remaining"] > 0:
                 session["remaining"] -= 1
 
+                # --- Reevaluate question count if person has become recognizable ---
+                reevaluate_prompt = f"""
+                This person is named {payload.name}.
+                Based on the updated summary: "{session['summary']}" and the accumulated answers: {session['answers']},
+                do you now recognize this person as well known? How many more follow-up questions are actually needed?
+
+                Return in this exact JSON format:
+                {{
+                  "matched": true or false,
+                  "number_of_questions": X
+                }}
+                """
+                reevaluation = client.chat.completions.create(
+                    model="gpt-3.5-turbo",
+                    messages=[{"role": "user", "content": reevaluate_prompt}],
+                    temperature=0.6,
+                )
+                try:
+                    reevaluation_data = json.loads(reevaluation.choices[0].message.content)
+                    print("[submit-answer] Reevaluated GPT classification:", reevaluation_data)
+                    # Update remaining and total only if new number is lower (meaning GPT is now more certain)
+                    new_total = reevaluation_data.get("number_of_questions")
+                    if new_total is not None and new_total < session["total"]:
+                        session["remaining"] = max(0, new_total - len(session["answers"]))
+                        session["total"] = new_total
+                except Exception as err:
+                    print("Reevaluation JSON parsing failed or skipped:", err)
+                # --- End reevaluation logic ---
+
                 # Use name, history, and last_question in the prompt
+                search_summary = session.get("search_summary", "")
+                print("Search Summary from session")
+                print(f"""search_summary: {search_summary}""")
+                
                 if len(session["answers"]) == 1:
                     followup_prompt = f"""
                     This person is named {payload.name}.
-                    Based on the original summary: "{session['summary']}" and the previous answers: {session['answers']},
+                    Based on the original summary: "{session['summary']}" and the previous answers: {session['answers']} and the previous information found in the web search {search_summary}.,
                     the last question was: "{payload.last_question}" and the user responded: "{payload.answer}".
 
-                    Generate the next best question to better understand this person in a friendly and insightful way.
-                    Return only the question, no formatting.
+                    Generate the next best question to better understand this person in a friendly and insightful way (if now you know who he is, just go ahead and ask a focused question).
+                    Return only the question, no formatting .
                     """
                 else:
                     followup_prompt = f"""
@@ -157,6 +319,38 @@ async def submit_answer(payload: AnswerPayload):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+# --- Minimal flow for known users: /submit-known-answer ---
+@app.post("/submit-known-answer")
+async def submit_known_answer(payload: AnswerPayload):
+    try:
+        session_data = user_followup_questions.get(payload.user_id)
+        if not session_data or not session_data.get("matched"):
+            raise HTTPException(status_code=400, detail="User not marked as known.")
+
+        # Append the new answer
+        session_data["answers"].append(payload.answer)
+        session_data["remaining"] = max(0, session_data["remaining"] - 1)
+
+        search_summary = session_data.get("search_summary", "")
+        followup_prompt = f"""
+        This person is named {payload.name}.
+        Based on the original summary: "{session_data['summary']}" and the previous answers: {session_data['answers']} and the previous information found in the web search {search_summary},
+        the last question was: "{payload.last_question}" and the user responded: "{payload.answer}".
+
+        Generate the next best question to better understand this person in a friendly and insightful way (if now you know who they are, just go ahead and ask a focused question).
+        Return only the question, no formatting.
+        """
+        gpt_response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": followup_prompt}],
+            temperature=0.7,
+        )
+        next_question = gpt_response.choices[0].message.content
+        return {"nextQuestions": [next_question]}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
 
 
 class ProfilePayload(BaseModel):
@@ -174,7 +368,8 @@ async def generate_report_endpoint(payload: ProfilePayload):
         return {
             "report": profile_data["summary"],
             "uniqueness_score": profile_data["uniqueness_score"],
-            "image_prompt": profile_data["image_prompt"]
+            "image_prompt": profile_data["image_prompt"],
+            "image_url": profile_data["image_url"]
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -324,6 +519,7 @@ async def who_am_i(payload: WhoAmIRequest):
 
         if payload.user_id:
             user_followup_questions[payload.user_id] = {
+                "matched": followup_data["matched"],
                 "remaining": followup_data["number_of_questions"] - 1,
                 "total": followup_data["number_of_questions"],
                 "summary": summary,
@@ -337,6 +533,7 @@ async def who_am_i(payload: WhoAmIRequest):
                 "summary": summary,
                 "number_of_questions": followup_data["number_of_questions"],
                 "first_question": followup_data["first_question"],
+                "search_summary": search_summary
             },
         }
     except Exception as e:
@@ -403,6 +600,7 @@ Return in this exact JSON format:
 
         if payload.user_id:
             user_followup_questions[payload.user_id] = {
+                "matched": followup_data["matched"],
                 "remaining": followup_data["number_of_questions"] - 1,
                 "total": followup_data["number_of_questions"],
                 "summary": summary,
