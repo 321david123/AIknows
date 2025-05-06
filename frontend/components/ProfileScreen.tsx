@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { motion } from "framer-motion";
 import Link from "next/link";
 import { Download, Share2 } from "lucide-react";
@@ -12,13 +12,19 @@ export default function ProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [recommendations, setRecommendations] = useState<string[]>([]);
   const [personalityImage, setPersonalityImage] = useState<string | null>(null);
+  const [userName, setUserName] = useState<string>("");
 
   // State for TRON-style animation progress and line positions
   const [progress, setProgress] = useState(0);
   const [linePositions, setLinePositions] = useState<{ left: string; top: string; animationDelay: string }[]>([]);
 
+  // Prevent double-fetch in React StrictMode
+  const didFetchReport = useRef(false);
+
   // Fetch the personalized profile report from the backend.
   useEffect(() => {
+    if (didFetchReport.current) return;
+    didFetchReport.current = true;
     localStorage.removeItem("profileImageUrl");
     const storedImageUrl = localStorage.getItem("profileImageUrl");
 
@@ -29,13 +35,20 @@ export default function ProfileScreen() {
         const storedAnswers = JSON.parse(localStorage.getItem("quizAnswers") || "[]");
         const storedSummary = localStorage.getItem("quizSummary") || "";
 
-        if (!Array.isArray(storedAnswers)) {
-          console.error("storedAnswers is not an array:", storedAnswers);
-          setLoading(false);``
-          return;
-        }
+        // Filter out empty or whitespace-only answers
+        const validAnswers = Array.isArray(storedAnswers)
+          ? storedAnswers.filter(a => a.answer && a.answer.trim() !== "")
+          : [];
 
-        if (storedAnswers.length === 0 || storedAnswers.some(a => typeof a !== 'object' || !a.question || !a.answer)) {
+        // Determine raw name (persisted or fallback)
+        const rawName = localStorage.getItem("quizName") || validAnswers[0].answer;
+        // Capitalize each word
+        const formattedName: string = rawName
+          .split(" ")
+          .map((part: string) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+          .join(" ");
+
+        if (validAnswers.length === 0) {
           console.error("Invalid or incomplete answers:", storedAnswers);
           setLoading(false);
           return;
@@ -47,16 +60,18 @@ export default function ProfileScreen() {
           return;
         }
 
-        console.log("Sending answers to backend:", storedAnswers);
+        setUserName(formattedName);
+
+        console.log("Sending answers to backend:", validAnswers);
         console.log("Sending summary to backend:", storedSummary);
 
         const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/generate-report`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            name: "John Doe",
+            name: formattedName,
             summary: storedSummary,
-            answers: storedAnswers.map(a => `${a.question}: ${a.answer}`)
+            answers: validAnswers.map(a => `${a.question}: ${a.answer}`)
           }),
         });
 
@@ -196,96 +211,168 @@ export default function ProfileScreen() {
       transition={{ duration: 0.5 }}
       className="profile-container"
       style={{
+        background: "#f0f2f5",
         padding: "2rem",
         fontFamily: "sans-serif",
         minHeight: "100vh",
         width: "100%",
+        boxSizing: "border-box"
       }}
     >
-      <h1 className="profile-title">Your AI tailored Profile</h1>
-      
-      {/* Personalized Report Section */}
-      <div className="profile-report" style={{ marginBottom: "2rem" }}>
-        <h2>Personalized Report</h2>
-        <pre
-          style={{
-            whiteSpace: "pre-wrap",
-            background: "#f9f9f9",
-            padding: "1rem",
-            borderRadius: "8px",
-          }}
-        >
-          {report}
-        </pre>
-      </div>
-
-      {personalityImage && (
-        <div style={{ marginBottom: "2rem" }}>
-          <h2>Personality Portrait</h2>
+      <div style={{ maxWidth: "800px", margin: "0 auto" }}>
+        {/* Profile Header */}
+        <div style={{ display: "flex", alignItems: "center", marginBottom: "2rem" }}>
           <img
-            src={personalityImage}
-            alt="AI-generated personality"
+            src={personalityImage || "/placeholder-avatar.png"}
+            alt="Profile"
             style={{
-              width: "100%",
-              maxWidth: "600px",
-              borderRadius: "12px",
-              boxShadow: "0 4px 12px rgba(0, 0, 0, 0.1)"
+              width: "120px",
+              height: "120px",
+              borderRadius: "50%",
+              objectFit: "cover",
+              marginRight: "1.5rem",
             }}
           />
+          <h1 style={{ fontSize: "2rem", margin: 0 }}>
+            {userName || "Your Name"}
+          </h1>
         </div>
-      )}
 
-      {recommendations.length > 0 && (
-        <div style={{ marginBottom: "2rem" }}>
-          <h2>AI Recommendations</h2>
-          <ul>
-            {recommendations.map((rec, idx) => (
-              <li key={idx}>{rec}</li>
-            ))}
-          </ul>
+        {/* Summary Section */}
+        <div style={{
+          marginBottom: "2rem",
+          background: "#fff",
+          padding: "1.5rem",
+          borderRadius: "12px",
+          boxShadow: "0 4px 12px rgba(0,0,0,0.05)"
+        }}>
+          <h2>About</h2>
+          <p style={{ color: "#666", margin: 0 }}>
+            {report || "Your personalized profile summary will appear here."}
+          </p>
         </div>
-      )}
 
-      {publicData && (
-        <div style={{ marginBottom: "2rem" }}>
-          <h2>Public Info Summary</h2>
-          <p>{publicData}</p>
+        {traits.length > 0 && (
+          <div style={{
+            marginBottom: "2rem",
+            background: "#fff",
+            padding: "1.5rem",
+            borderRadius: "12px",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.05)"
+          }}>
+            <h2>Personality Traits</h2>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+              {traits.map((t, idx) => (
+                <span
+                  key={idx}
+                  style={{
+                    background: "#e0f7fa",
+                    padding: "0.5rem 1rem",
+                    borderRadius: "20px",
+                    color: "#00796b",
+                  }}
+                >
+                  {t}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div style={{
+          marginBottom: "2rem",
+          background: "#fff",
+          padding: "1.5rem",
+          borderRadius: "12px",
+          boxShadow: "0 4px 12px rgba(0,0,0,0.05)"
+        }}>
+          <h2>Personality Portrait</h2>
+          {personalityImage ? (
+            <img
+              src={personalityImage}
+              alt="AI-generated personality"
+              style={{
+                width: "100%",
+                maxWidth: "600px",
+                borderRadius: "12px",
+                boxShadow: "0 4px 12px rgba(0, 0, 0, 0.1)"
+              }}
+            />
+          ) : (
+            <div style={{
+              width: "100%",
+              maxWidth: "600px",
+              height: "300px",
+              background: "#eee",
+              borderRadius: "12px"
+            }} />
+          )}
         </div>
-      )}
 
-      {/* Profile Actions */}
-      <div
-        className="profile-actions"
-        style={{ marginBottom: "1rem", display: "flex", gap: "1rem" }}
-      >
-        <a
-          href={`${process.env.NEXT_PUBLIC_BACKEND_URL}/download-report`}
-          target="_blank"
-          rel="noopener noreferrer"
-          style={{ textDecoration: "none" }}
+        {recommendations.length > 0 && (
+          <div style={{
+            marginBottom: "2rem",
+            background: "#fff",
+            padding: "1.5rem",
+            borderRadius: "12px",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.05)"
+          }}>
+            <h2>AI Recommendations</h2>
+            <ul>
+              {recommendations.map((rec, idx) => (
+                <li key={idx}>{rec}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+
+        {publicData && (
+          <div style={{
+            marginBottom: "2rem",
+            background: "#fff",
+            padding: "1.5rem",
+            borderRadius: "12px",
+            boxShadow: "0 4px 12px rgba(0,0,0,0.05)"
+          }}>
+            <h2>Public Info Summary</h2>
+            <p>{publicData}</p>
+          </div>
+        )}
+
+        {/* Profile Actions */}
+        <div
+          className="profile-actions"
+          style={{ marginBottom: "1rem", display: "flex", gap: "1rem" }}
         >
+          <a
+            href={`${process.env.NEXT_PUBLIC_BACKEND_URL}/download-report`}
+            target="_blank"
+            rel="noopener noreferrer"
+            style={{ textDecoration: "none" }}
+          >
+            <button
+              className="profile-button primary"
+              style={{ padding: "0.5rem 1rem", fontSize: "1rem" }}
+            >
+              <Download /> Download Report
+            </button>
+          </a>
           <button
-            className="profile-button primary"
+            className="profile-button secondary"
             style={{ padding: "0.5rem 1rem", fontSize: "1rem" }}
           >
-            <Download /> Download Report
+            <Share2 /> Share Profile
           </button>
-        </a>
-        <button
-          className="profile-button secondary"
-          style={{ padding: "0.5rem 1rem", fontSize: "1rem" }}
-        >
-          <Share2 /> Share Profile
-        </button>
-      </div>
+        </div>
 
-      <Link
-        href="/quiz"
-        className="retake-link"
-        style={{ fontSize: "1rem", color: "#0070f3", textDecoration: "underline" }}
-      >
-        Retake Quiz
-      </Link>
+        <Link
+          href="/quiz"
+          className="retake-link"
+          style={{ fontSize: "1rem", color: "#0070f3", textDecoration: "underline" }}
+        >
+          Retake Quiz
+        </Link>
+      </div>
     </motion.div>
   );
 }

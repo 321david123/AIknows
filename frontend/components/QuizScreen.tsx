@@ -167,28 +167,44 @@ export default function QuizScreen() {
 
         setKnownUser(!!data.gpt.matched);
 
-        if (data?.gpt?.matched) {
-          const followups = Array(data.gpt.number_of_questions).fill(null).map((_, i) => `Question ${i + 1}`);
-          const allQuestions = [
-            "What's your full name?",
-            plainGreeting,
-            data.gpt.first_question,
-            ...followups.slice(1),
-          ];
-          setQuestions(allQuestions);
-          setQuizData(allQuestions.map((q) => ({ question: q, answer: "" })));
-        } else {
-          const followups = Array(data.gpt.number_of_questions).fill(null).map((_, i) => `Question ${i + 1}`);
-          const allQuestions = [
-            "What's your full name?",
-            intro,
-            data.gpt.first_question,
-            "We couldn't find you online. Let's create a profile from scratch.",
-            ...followups,
-          ];
-          setQuestions(allQuestions);
-          setQuizData(allQuestions.map((q) => ({ question: q, answer: "" })));
-        }
+      if (data?.gpt?.matched) {
+        const followups = Array(data.gpt.number_of_questions).fill(null).map((_, i) => `Question ${i + 1}`);
+        const allQuestions = [
+          "What's your full name?",
+          plainGreeting,
+          data.gpt.first_question,
+          ...followups.slice(1),
+        ];
+        setQuestions(allQuestions);
+        setQuizData(allQuestions.map((q) => ({ question: q, answer: "" })));
+        // Record the user's name as the first quizData entry
+        setQuizData((prev) => {
+          const updated = [...prev];
+          if (updated[0]) {
+            updated[0] = { ...updated[0], answer: name };
+          }
+          return updated;
+        });
+      } else {
+        const followups = Array(data.gpt.number_of_questions).fill(null).map((_, i) => `Question ${i + 1}`);
+        const allQuestions = [
+          "What's your full name?",
+          intro,
+          data.gpt.first_question,
+          "We couldn't find you online. Let's create a profile from scratch.",
+          ...followups,
+        ];
+        setQuestions(allQuestions);
+        setQuizData(allQuestions.map((q) => ({ question: q, answer: "" })));
+        // Record the user's name as the first quizData entry
+        setQuizData((prev) => {
+          const updated = [...prev];
+          if (updated[0]) {
+            updated[0] = { ...updated[0], answer: name };
+          }
+          return updated;
+        });
+      }
 
         setCurrentQuestion(1);
         setStartGreeting(true);
@@ -205,6 +221,8 @@ export default function QuizScreen() {
         console.log("Submitting answer for question:", questions[currentQuestion]);
         setButtonClicked(true);
         const endpoint = knownUser ? "/submit-known-answer" : "/submit-answer";
+        // Use persisted name if available
+        const storedName = localStorage.getItem("quizName") || answers[0];
         const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}${endpoint}`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -212,11 +230,9 @@ export default function QuizScreen() {
             answer: answerToSend,
             question_id: currentQuestion + 1,
             user_id: userId,
-            context: {
-              name: answers[0], // Full name from first answer
-              history: quizData.map((q) => q.answer).filter(Boolean), // All previous answers
-              last_question: questions[currentQuestion] // The current question being answered
-            }
+            name: storedName,
+            history: quizData.map((q) => q.answer).filter(Boolean),
+            last_question: questions[currentQuestion],
           }),
         });
         const data = await res.json();
