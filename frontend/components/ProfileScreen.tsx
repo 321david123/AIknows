@@ -25,17 +25,13 @@ export default function ProfileScreen() {
     async function fetchReport() {
       try {
         // TEMP: Use dummy payload that matches backend format
-        const storedAnswers = [
-          { question: "What’s your full name?", answer: "John Doe" },
-          { question: "What drives you?", answer: "Helping people through technology." },
-          { question: "What excites you most about the future?", answer: "The potential of AI in medicine." }
-        ];
-        const storedSummary =
-          "John is a driven individual passionate about leveraging technology to improve lives, especially through AI in healthcare.";
+        // Load actual answers and summary from localStorage
+        const storedAnswers = JSON.parse(localStorage.getItem("quizAnswers") || "[]");
+        const storedSummary = localStorage.getItem("quizSummary") || "";
 
         if (!Array.isArray(storedAnswers)) {
           console.error("storedAnswers is not an array:", storedAnswers);
-          setLoading(false);
+          setLoading(false);``
           return;
         }
 
@@ -110,7 +106,7 @@ export default function ProfileScreen() {
   }, [loading]);
 
   if (loading) {
-    const numLines = Math.floor(progress / 5) + 3;
+    const numLines = linePositions.length;
     return (
       <div
         style={{
@@ -135,7 +131,6 @@ export default function ProfileScreen() {
                 left: pos.left,
                 top: pos.top,
                 animationDelay: pos.animationDelay,
-                animationDuration: `${3 - Math.min(progress / 50, 2)}s`,
               }}
             />
           ))}
@@ -164,7 +159,6 @@ export default function ProfileScreen() {
             opacity: 0;
             animation-timing-function: ease-in-out;
             animation-fill-mode: both;
-            transition: opacity 0.5s ease-in-out, transform 0.5s ease-in-out;
             box-shadow: 0 0 8px #00f0ff, 0 0 15px #00f0ff;
             border-radius: 1px;
           }

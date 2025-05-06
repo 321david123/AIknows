@@ -108,7 +108,7 @@ Return as JSON:
         # Generate DALL·E image using the prompt
         dalle_response = client.images.generate(
             model="dall-e-3",
-            prompt="Make an image: a gradient that covers the whole image, it can only be two colors and go from left to right, make it that one color is in the most part of the image",
+            prompt="A 1024×1024 minimal abstract: a neutral background with a single circle split down the middle. Each half is filled with many thin, smooth horizontal bands forming gentle waves in its own color palette. No text, icons, or extra elements—just the clean, layered circle.",
             # prompt=profile_data["image_prompt"],
             size="1024x1024",
             quality="standard",
