@@ -150,6 +150,10 @@ export default function QuizScreen() {
         }
 
         const data = await res.json();
+        // Persist the SerpAPI + GPT search summary
+        if (data.gpt?.search_summary) {
+          localStorage.setItem("quizSearchSummary", data.gpt.search_summary);
+        }
         const intro = `Hi ${name}, let's get to know you better.`;
 
         const firstName = name.split(" ")[0];

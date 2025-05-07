@@ -13,6 +13,11 @@ export default function ProfileScreen() {
   const [recommendations, setRecommendations] = useState<string[]>([]);
   const [personalityImage, setPersonalityImage] = useState<string | null>(null);
   const [userName, setUserName] = useState<string>("");
+  const [badge, setBadge] = useState<string>("");
+
+  const [futureOutcomes, setFutureOutcomes] = useState<string>("");
+
+  const [showBadgeInfo, setShowBadgeInfo] = useState(false);
 
   // State for TRON-style animation progress and line positions
   const [progress, setProgress] = useState(0);
@@ -65,12 +70,16 @@ export default function ProfileScreen() {
         console.log("Sending answers to backend:", validAnswers);
         console.log("Sending summary to backend:", storedSummary);
 
+        // Retrieve stored SerpAPI/GPT search summary for use in profile generation
+        const storedSearchSummary = localStorage.getItem("quizSearchSummary") || "";
+
         const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/generate-report`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             name: formattedName,
             summary: storedSummary,
+            search_summary: storedSearchSummary,
             answers: validAnswers.map(a => `${a.question}: ${a.answer}`)
           }),
         });
@@ -83,6 +92,10 @@ export default function ProfileScreen() {
         }
 
         const data = await res.json();
+        // Store the badge text if provided
+        if (data.badge) {
+          setBadge(data.badge);
+        }
         setReport(data.report);
         if (data.traits) setTraits(data.traits);
         if (data.public_data) setPublicData(data.public_data);
@@ -90,6 +103,10 @@ export default function ProfileScreen() {
         setPersonalityImage(data.image_url || storedImageUrl);
         if (data.image_url) {
           localStorage.setItem("profileImageUrl", data.image_url);
+        }
+        // Store GPT-generated future outcomes if provided
+        if (data.future_outcomes) {
+          setFutureOutcomes(data.future_outcomes);
         }
       } catch (error) {
         console.error("Error fetching report:", error);
@@ -211,7 +228,7 @@ export default function ProfileScreen() {
       transition={{ duration: 0.5 }}
       className="profile-container"
       style={{
-        background: "#f0f2f5",
+        background: "#ffffff",
         padding: "2rem",
         fontFamily: "sans-serif",
         minHeight: "100vh",
@@ -221,7 +238,7 @@ export default function ProfileScreen() {
     >
       <div style={{ maxWidth: "800px", margin: "0 auto" }}>
         {/* Profile Header */}
-        <div style={{ display: "flex", alignItems: "center", marginBottom: "2rem" }}>
+        <div className="profile-header" style={{ display: "flex", alignItems: "center", marginBottom: "2rem" }}>
           <img
             src={personalityImage || "/placeholder-avatar.png"}
             alt="Profile"
@@ -236,6 +253,48 @@ export default function ProfileScreen() {
           <h1 style={{ fontSize: "2rem", margin: 0 }}>
             {userName || "Your Name"}
           </h1>
+          {badge && (
+            <div className="badge-container" style={{ position: "relative", display: "inline-block", marginLeft: "1rem" }}>
+              <span
+                onMouseEnter={() => setShowBadgeInfo(true)}
+                onMouseLeave={() => setShowBadgeInfo(false)}
+                onClick={() => setShowBadgeInfo(prev => !prev)}
+                style={{
+                  padding: "0.25rem 0.5rem",
+                  background: "gold",
+                  borderRadius: "8px",
+                  fontSize: "0.875rem",
+                  color: "#000",
+                  fontWeight: "600",
+                  textShadow: "0 0 6px gold",
+                  boxShadow: "0 0 8px gold",
+                  animation: "glow 2s ease-in-out infinite alternate",
+                  cursor: "pointer"
+                }}
+              >
+                {badge}
+              </span>
+              {showBadgeInfo && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "110%",
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    background: "rgba(0, 0, 0, 0.8)",
+                    color: "#fff",
+                    padding: "0.5rem",
+                    borderRadius: "4px",
+                    whiteSpace: "nowrap",
+                    fontSize: "0.75rem",
+                    zIndex: 100
+                  }}
+                >
+                  This badge recognizes individuals with exceptional uniqueness and impact.
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Summary Section */}
@@ -286,27 +345,10 @@ export default function ProfileScreen() {
           borderRadius: "12px",
           boxShadow: "0 4px 12px rgba(0,0,0,0.05)"
         }}>
-          <h2>Personality Portrait</h2>
-          {personalityImage ? (
-            <img
-              src={personalityImage}
-              alt="AI-generated personality"
-              style={{
-                width: "100%",
-                maxWidth: "600px",
-                borderRadius: "12px",
-                boxShadow: "0 4px 12px rgba(0, 0, 0, 0.1)"
-              }}
-            />
-          ) : (
-            <div style={{
-              width: "100%",
-              maxWidth: "600px",
-              height: "300px",
-              background: "#eee",
-              borderRadius: "12px"
-            }} />
-          )}
+          <h2>Possible Outcomes</h2>
+          <p style={{ color: "#666", margin: 0, whiteSpace: "pre-wrap" }}>
+            {futureOutcomes || "Your personalized possible outcomes will appear here."}
+          </p>
         </div>
 
         {recommendations.length > 0 && (
@@ -317,7 +359,7 @@ export default function ProfileScreen() {
             borderRadius: "12px",
             boxShadow: "0 4px 12px rgba(0,0,0,0.05)"
           }}>
-            <h2>AI Recommendations</h2>
+            <h2>Recommendations</h2>
             <ul>
               {recommendations.map((rec, idx) => (
                 <li key={idx}>{rec}</li>
@@ -368,11 +410,50 @@ export default function ProfileScreen() {
         <Link
           href="/quiz"
           className="retake-link"
-          style={{ fontSize: "1rem", color: "#0070f3", textDecoration: "underline" }}
+          style={{ fontSize: ".8rem", color: "#0070f3", textDecoration: "underline" }}
         >
           Retake Quiz
         </Link>
       </div>
+      <style jsx>{`
+        @keyframes glow {
+          0% {
+            text-shadow: 0 0 8px gold;
+            box-shadow: 0 0 12px gold;
+          }
+          50% {
+            text-shadow: 0 0 20px gold;
+            box-shadow: 0 0 28px gold;
+          }
+          100% {
+            text-shadow: 0 0 12px gold;
+            box-shadow: 0 0 16px gold;
+          }
+        }
+        @media (max-width: 600px) {
+          .profile-header {
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+          }
+          .profile-header img {
+            margin-right: 0 !important;
+            margin-bottom: 1rem;
+          }
+          .profile-header h1 {
+            font-size: 1.5rem;
+          }
+          .badge-container {
+            margin-top: 0.5rem !important;
+            margin-left: 0 !important;
+          }
+        }
+      `}</style>
+      <style jsx global>{`
+        html, body {
+          background: #f0f2f5 !important;
+        }
+      `}</style>
     </motion.div>
   );
 }

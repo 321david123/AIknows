@@ -66,7 +66,7 @@ def generate_personalized_recommendations():
     ]
 
 
-def generate_profile_report_with_image(name, answers, summary):
+def generate_profile_report_with_image(name, answers, summary,search_summary=""):
     prompt = f"""
 This is a profile of a person named {name}. Here are their answers:
 {answers}
@@ -76,21 +76,17 @@ Summary: {summary}
 Based on this, write:
 1. A short profile summary in third person.
 2. Rate the uniqueness and social/technical impact of this person from 1 to 10.
-3. Suggest a visual prompt for DALL·E that:
-   -a gradient, Avoid faces or literal objects and shapes, its just a gradient. 
-   The image must be a simple gradient that keeps one color in the most part of the image.
-   - If uniqueness >= 9, incorporate golden streaks or vivid golden glow.
-   - If uniqueness >= 7, include subtle golden reflections.
-   - Otherwise, keep it simple one color.
+3. If this person is well-recognized (matched=True in previous logic), add the text: "Incredible Individual" as a string in the response.
+4. Describe 3 possible outcomes for this person 10 years from now, including where they might be and what could happen with their company (e.g., reaching unicorn status). Return these as a single multi-line string under the field "future_outcomes".
+5. Suggest 3 personalized recommendations for this person based on their profile, and return them as a JSON array under the field "recommendations".
 
-4. If this person is well-recognized (matched=True in previous logic), add the text: "Incredible Individual Badge" as a string in the response.
-
-Return as JSON:
+Return in this JSON format (including the new fields):
 {{
   "summary": "...",
   "uniqueness_score": 9,
-  "image_prompt": "...",
-  "badge": "Incredible Individual Badge" or ""
+  "badge": "Incredible Individual",
+  "future_outcomes": "...",
+  "recommendations": ["...", "...", "..."]
 }}
 """
 
@@ -116,6 +112,10 @@ Return as JSON:
         )
         image_url = dalle_response.data[0].url
         profile_data["image_url"] = image_url
+        # Ensure future_outcomes and recommendations are preserved
+        # (If not present, provide defaults)
+        profile_data["future_outcomes"] = profile_data.get("future_outcomes", "")
+        profile_data["recommendations"] = profile_data.get("recommendations", [])
         return profile_data
     except json.JSONDecodeError:
         raise HTTPException(status_code=500, detail="Failed to parse profile JSON")
@@ -357,22 +357,27 @@ class ProfilePayload(BaseModel):
     name: str
     answers: list[str]
     summary: str
+    search_summary: str = ""  
     traits: list = []
     public_data: dict = {}
 
 
 @app.post("/generate-report")
 async def generate_report_endpoint(payload: ProfilePayload):
-    try:
-        profile_data = generate_profile_report_with_image(payload.name, payload.answers, payload.summary)
-        return {
-            "report": profile_data["summary"],
-            "uniqueness_score": profile_data["uniqueness_score"],
-            "image_prompt": profile_data["image_prompt"],
-            "image_url": profile_data["image_url"]
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    profile_data = generate_profile_report_with_image(
+        payload.name,
+        payload.answers,
+        payload.summary,
+        payload.search_summary
+    )
+    return {
+        "report": profile_data["summary"],
+        "uniqueness_score": profile_data["uniqueness_score"],
+        "badge": profile_data.get("badge", ""),
+        "image_url": profile_data["image_url"],
+        "future_outcomes": profile_data.get("future_outcomes", ""),
+        "recommendations": profile_data.get("recommendations", []),
+    }
 
 
 @app.get("/download-report")
