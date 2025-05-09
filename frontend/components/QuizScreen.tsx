@@ -25,21 +25,17 @@ export default function QuizScreen() {
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [answers, setAnswers] = useState<string[]>([]);
   const [questions, setQuestions] = useState<string[]>([]);
-
   const [quizData, setQuizData] = useState<QuizEntry[]>([]);
-
   const [userId, setUserId] = useState<string | null>(null);
-
   const [typedGreeting, setTypedGreeting] = useState("");
   const [typedIntro, setTypedIntro] = useState("");
   const [finalGreetingHTML, setFinalGreetingHTML] = useState("");
   const [startGreeting, setStartGreeting] = useState(false);
+  const [knownUser, setKnownUser] = useState(false);
 
   // Button click state for feedback
   const [buttonClicked, setButtonClicked] = useState(false);
-
   const [totalQuestions, setTotalQuestions] = useState<number | null>(null);
-
   const [userContext, setUserContext] = useState<{ region?: string; country?: string; language?: string; hour?: number; fingerprint?: string }>({});
 
   useEffect(() => {
@@ -99,8 +95,7 @@ export default function QuizScreen() {
           localStorage.setItem("fingerprint_id", fingerprint);
         }
         setUserContext({
-          region: 'Guanajuato',
-          country: 'Mexico',
+          region: geo.region,
           language,
           hour,
           fingerprint,
@@ -126,6 +121,13 @@ export default function QuizScreen() {
     ? ((Math.max(currentQuestion - 2, 0) + 1) / totalQuestions) * 100
     : ((currentQuestion + 1) / questions.length) * 100;
 
+  // Compute displayed questions answered, skipping the intro screen
+  const displayCount = currentQuestion === 0
+    ? 0
+    : currentQuestion === 1
+      ? 1
+      : currentQuestion - 1;
+
   const handleNext = async () => {
     const answerToSend = answers[currentQuestion];
     if (currentQuestion === 0) {
@@ -134,6 +136,12 @@ export default function QuizScreen() {
         alert("Please enter your full name to continue.");
         return;
       }
+      // Store the name as the first answer
+      setAnswers((prev) => {
+        const updated = [...prev];
+        updated[0] = name;
+        return updated;
+      });
       setButtonClicked(true);
 
       try {
@@ -152,6 +160,10 @@ export default function QuizScreen() {
         }
 
         const data = await res.json();
+        // Persist the SerpAPI + GPT search summary
+        if (data.gpt?.search_summary) {
+          localStorage.setItem("quizSearchSummary", data.gpt.search_summary);
+        }
         const intro = `Hi ${name}, let's get to know you better.`;
 
         const firstName = name.split(" ")[0];
@@ -167,28 +179,46 @@ export default function QuizScreen() {
           setTotalQuestions(data.gpt.number_of_questions + 1); // +1 to include name, second entry is not a real question
         }
 
-        if (data?.gpt?.matched) {
-          const followups = Array(data.gpt.number_of_questions).fill(null).map((_, i) => `Question ${i + 1}`);
-          const allQuestions = [
-            "What's your full name?",
-            plainGreeting,
-            data.gpt.first_question,
-            ...followups.slice(1),
-          ];
-          setQuestions(allQuestions);
-          setQuizData(allQuestions.map((q) => ({ question: q, answer: "" })));
-        } else {
-          const followups = Array(data.gpt.number_of_questions).fill(null).map((_, i) => `Question ${i + 1}`);
-          const allQuestions = [
-            "What's your full name?",
-            intro,
-            data.gpt.first_question,
-            "We couldn't find you online. Let's create a profile from scratch.",
-            ...followups,
-          ];
-          setQuestions(allQuestions);
-          setQuizData(allQuestions.map((q) => ({ question: q, answer: "" })));
-        }
+        setKnownUser(!!data.gpt.matched);
+
+      if (data?.gpt?.matched) {
+        const followups = Array(data.gpt.number_of_questions).fill(null).map((_, i) => `Question ${i + 1}`);
+        const allQuestions = [
+          "What's your full name?",
+          plainGreeting,
+          data.gpt.first_question,
+          ...followups.slice(1),
+        ];
+        setQuestions(allQuestions);
+        setQuizData(allQuestions.map((q) => ({ question: q, answer: "" })));
+        // Record the user's name as the first quizData entry
+        setQuizData((prev) => {
+          const updated = [...prev];
+          if (updated[0]) {
+            updated[0] = { ...updated[0], answer: name };
+          }
+          return updated;
+        });
+      } else {
+        const followups = Array(data.gpt.number_of_questions).fill(null).map((_, i) => `Question ${i + 1}`);
+        const allQuestions = [
+          "What's your full name?",
+          intro,
+          data.gpt.first_question,
+          "We couldn't find you online. Let's create a profile from scratch.",
+          ...followups,
+        ];
+        setQuestions(allQuestions);
+        setQuizData(allQuestions.map((q) => ({ question: q, answer: "" })));
+        // Record the user's name as the first quizData entry
+        setQuizData((prev) => {
+          const updated = [...prev];
+          if (updated[0]) {
+            updated[0] = { ...updated[0], answer: name };
+          }
+          return updated;
+        });
+      }
 
         setCurrentQuestion(1);
         setStartGreeting(true);
@@ -202,54 +232,100 @@ export default function QuizScreen() {
     try {
       // Skip backend call for intro or summary questions (e.g., question 1 or 2 after name)
       if (currentQuestion > 1) {
+        console.log("Submitting answer for question:", questions[currentQuestion]);
         setButtonClicked(true);
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/submit-answer`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            answer: answerToSend,
-            question_id: currentQuestion + 1,
-            user_id: userId,
-          }),
-        });
-        const data = await res.json();
+        const storedName = localStorage.getItem("quizName") || answers[0];
+        let data;
+        if (knownUser) {
+          // Known user: submit to /submit-known-answer
+          const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/submit-known-answer`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: storedName,
+              user_id: userId,
+              answer: answerToSend,
+              question_id: currentQuestion + 1,
+              last_question: questions[currentQuestion],
+              history: quizData.map(q => q.answer).filter(Boolean),
+              search_summary: localStorage.getItem("quizSearchSummary") || "",
+            }),
+          });
+          data = await res.json();
+        } else {
+          // Gather only the answered questions so far
+          const answered = questions
+            .map((q, idx) => ({ question: q, answer: answers[idx] }))
+            .filter(p => p.answer && p.answer.trim());
+
+          // Unknown user: submit to /enhanced-whoami with only answered Q&A
+          const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/enhanced-whoami`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name: storedName,
+              user_id: userId,
+              questions: answered.map(p => p.question),
+              answers:   answered.map(p => p.answer),
+            }),
+          });
+          data = await res.json();
+        }
         console.log("Response from backend:", data);
 
-        if (data.nextQuestions && data.nextQuestions.length > 0) {
-          setQuestions((prevQuestions) => {
-            const newQuestions = [...prevQuestions];
-            if (currentQuestion + 1 < newQuestions.length) {
-              if (!newQuestions.includes(data.nextQuestions[0])) {
-                newQuestions[currentQuestion + 1] = data.nextQuestions[0];
-              } else {
-                newQuestions[currentQuestion + 1] =
-                  "asdasdasdCan you share another insight about your work experience?";
-              }
+        // Inject backend-provided follow-up for known users
+        if (knownUser && data.nextQuestions && data.nextQuestions.length > 0) {
+          const nextQ = data.nextQuestions[0];
+          setQuestions(prev => {
+            const updated = [...prev];
+            if (currentQuestion + 1 < updated.length) {
+              updated[currentQuestion + 1] = nextQ;
             } else {
-              newQuestions.push(data.nextQuestions[0]);
+              updated.push(nextQ);
             }
-            return newQuestions;
+            return updated;
           });
-        } else {
-          console.warn("No new questions returned from backend.");
+          setQuizData(prev => {
+            const updated = [...prev];
+            if (currentQuestion + 1 < updated.length) {
+              updated[currentQuestion + 1] = { question: nextQ, answer: "" };
+            } else {
+              updated.push({ question: nextQ, answer: "" });
+            }
+            return updated;
+          });
+        }
+
+        if (!knownUser) {
+          // Handle unknown-user GPT logic: REBUILD questions array
+          setKnownUser(data.gpt.matched);
+          if (data.gpt.number_of_questions) {
+            setTotalQuestions(data.gpt.number_of_questions + 1);
+          }
+          if (data.gpt.first_question) {
+            // Rebuild questions array: name prompt, greeting, then the GPT-provided first follow-up
+            const newQuestions = [
+              questions[0],      // "What's your full name?"
+              questions[1],      // the greeting or intro text
+              data.gpt.first_question,
+            ];
+            setQuestions(newQuestions);
+            setQuizData(newQuestions.map((q) => ({ question: q, answer: "" })));
+            // Jump to the newly loaded question and skip the generic navigation logic
+            setCurrentQuestion(2);
+            return;
+          }
         }
       }
 
-      // If it's the last question, process and then redirect to the profile.
-      if (currentQuestion >= questions.length - 1) {
-        // Submit profile before navigating
-        await fetch(`${process.env.NEXT_PUBLIC_API_URL}/submit-profile`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            name: session?.user?.name || "Anonymous",
-            answers: quizData,
-            summary: "To be generated",  // Placeholder if no summary is set
-            traits: [],
-            public_data: {}
-          }),
-        });
+      // If it's the last question, save answers and navigate to the profile screen
+      if (knownUser && currentQuestion >= questions.length - 1) {
+        if (typeof window !== "undefined") {
+          localStorage.setItem("quizAnswers", JSON.stringify(quizData));
+          localStorage.setItem("quizSummary", "placeholder-summary");
+        }
         router.push("/profile");
+        return;
       } else {
         // Update quizData with answer
         setQuizData((prev) => {
@@ -261,11 +337,17 @@ export default function QuizScreen() {
           console.log("Stored question/answer pair:", updated[currentQuestion]);
           return updated;
         });
+
         // Reset the answer for the current question right after advancing
-        setCurrentQuestion(currentQuestion + 1);
+        const nextQuestionIndex = currentQuestion + 1;
+        setCurrentQuestion(nextQuestionIndex);
         setAnswers((prev) => {
           const newAnswers = [...prev];
-          newAnswers[currentQuestion] = "";
+          // Ensure the array has an entry for the next question
+          if (newAnswers.length <= nextQuestionIndex) {
+            newAnswers.length = nextQuestionIndex + 1;
+          }
+          newAnswers[nextQuestionIndex] = "";
           return newAnswers;
         });
       }
@@ -282,7 +364,7 @@ export default function QuizScreen() {
       className="quiz-screen"
     >
       <div className="progress-bar-label" style={{ marginBottom: "4px", fontSize: "0.85rem", color: "#ccc" }}>
-        {Math.max(currentQuestion - 2, 0) + 1} of {(currentQuestion <= 1 && (!totalQuestions || totalQuestions === 1)) ? "?" : totalQuestions || questions.length} questions answered
+        {displayCount} of {(currentQuestion <= 1 && (!totalQuestions || totalQuestions === 1)) ? "?" : totalQuestions || questions.length} questions answered
       </div>
       <div className="progress-bar">
         <div className="progress-bar-fill" style={{ width: `${progress}%` }} />
@@ -318,7 +400,7 @@ export default function QuizScreen() {
       ) : (
         <h2
           className="quiz-question"
-          dangerouslySetInnerHTML={{ __html: questions[currentQuestion].replace(/\n/g, "<br />") }}
+          dangerouslySetInnerHTML={{ __html: (questions[currentQuestion] ?? '').replace(/\n/g, "<br />") }}
         />
       )}
       {currentQuestion !== 1 && (
