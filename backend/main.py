@@ -429,9 +429,8 @@ class WhoAmIRequest(BaseModel):
 class EnhancedWhoAmIRequest(BaseModel):
     name: str
     user_id: str = None
-    context: dict = {}
     answers: list[str] = []
-
+    questions: list[str] = []
 
 def is_well_known(summary: str) -> bool:
     summary_lower = summary.lower()
@@ -550,43 +549,69 @@ async def who_am_i(payload: WhoAmIRequest):
 @app.post("/enhanced-whoami")
 async def enhanced_who_am_i(payload: EnhancedWhoAmIRequest):
     try:
-        search_query = payload.name
-        if payload.context.get("region"):
-            search_query += f" {payload.context['region']}"
-        elif payload.context.get("country"):
-            search_query += f" {payload.context['country']}"
+        context_info = f"Name: {payload.name}\n"
+        for i in range(min(5, len(payload.answers))):
+            question = payload.questions[i] if i < len(payload.questions) else f"Question {i+1}"
+            answer = payload.answers[i]
+            context_info += f"{question}: {answer}\n"
+            print(context_info)
+        print("Context Info for GPT:", context_info)
+        search_gen_prompt = f"""
+Given the following information about a person, generate a concise and precise Google search query that could help us identify if the person is well known. Focus the query to surface key information or notable results.
 
-        for answer in payload.answers[:5]:  # Use only the first 5 answers
-            search_query += f" {answer}"
+{context_info}
+
+Return only the search query string.
+        """
+
+        search_gen = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": search_gen_prompt}],
+            temperature=0.5,
+        )
+        search_query = search_gen.choices[0].message.content.strip()
+        print("Generated Search Query:", search_query)
 
         serp_url = (
             f"https://serpapi.com/search.json?q={search_query}&api_key={SERP_API_KEY}"
         )
+        print("SerpAPI URL:", serp_url)
         serp_response = requests.get(serp_url)
         serp_response.raise_for_status()
         results = serp_response.json()
-        organic_results = results.get("organic_results", [])
-
+        organic_results = results.get("organic_results")
+        if not organic_results:
+            raise ValueError("No organic_results found in SerpAPI response")
+        print(organic_results)
         snippets = []
         for result in organic_results[:5]:
             title = result.get("title", "")
             snippet = result.get("snippet", "")
             snippets.append(f"{title}: {snippet}")
         search_summary = "\n".join(snippets)
-
-        gpt_prompt = f"Based on this search information, does this describe a well-known person named '{payload.name}'? Give a short summary:\n{search_summary}"
-        gpt_response = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[{"role": "user", "content": gpt_prompt}],
-            temperature=0.6,
-        )
-        summary = gpt_response.choices[0].message.content
+        # print("Search Summary:", search_summary)
+        print("this is before the prompt")
+        # gpt_prompt = f"Based on this search information, does this describe a well-known person named '{payload.name}'? here's the information: \n{search_summary} Now Give a short summary:"
+        # print("GPT Prompt for Summary:", gpt_prompt)
+        # print("we got here")
+        # # print("GPT Prompt for Summary:", gpt_prompt)
+        # print(gpt_prompt)
+        # gpt_response = client.chat.completions.create(
+        #     model="gpt-3.5-turbo",
+        #     messages=[{"role": "user", "content": gpt_prompt}],
+        #     temperature=0.6,
+        # )
+        # print("HEREEEE")
+        # print(gpt_response)
+        # summary = gpt_response.choices[0].message.content
+        # print("GPT Summary:", summary)
 
         gpt_followup_prompt = f"""
-Based on this summary: "{summary}", determine:
-1. If this person is well known. (return true if sure, false if unsure or not known)
-2. How many follow-up questions are needed (between 2 and 7).
-3. Provide only the next best question to ask them.
+Based on this summary: "{search_summary}", determine:
+  1. If this person is well known. (if the are well known return true, but if you are not sure or its not known return false)
+  2. How many follow-up questions are needed (if its a more known person obviusly is gonna need less questions (2 questions) that someone new that we dont know. if its unknown the questions should be more (around 7)
+  3. Provide only the first question to ask them., for this first question: write 1 insightful and friendly follow-up questions to better understand this person’s values and mindset, be more personal if the individual is well known (more about their lifestyle). ask the question to the person that the information was about (Just ask the question, do not answer it, neither add anything else, no introduction neither).
+  And if you are *not sure* or its a not-known person or new user use this method: Write 1 insightful and friendly questions to better understand a new user, you can use this template or modify it depending on the infromation you got from the summary: Which field or profession are you most associated with? (something that can be helpfull in a google search to find this person)
 
 Return in this exact JSON format:
 {{
@@ -602,13 +627,13 @@ Return in this exact JSON format:
         )
         followup_data_raw = followup_response.choices[0].message.content
         followup_data = json.loads(followup_data_raw)
-
+        print("Parsed follow-up JSON:", followup_data)
         if payload.user_id:
             user_followup_questions[payload.user_id] = {
                 "matched": followup_data["matched"],
                 "remaining": followup_data["number_of_questions"] - 1,
                 "total": followup_data["number_of_questions"],
-                "summary": summary,
+                "summary": search_summary,
                 "answers": [],
             }
 
@@ -616,7 +641,7 @@ Return in this exact JSON format:
             "searchResults": organic_results,
             "gpt": {
                 "matched": followup_data["matched"],
-                "summary": summary,
+                "summary": search_summary,
                 "number_of_questions": followup_data["number_of_questions"],
                 "first_question": followup_data["first_question"],
             },
