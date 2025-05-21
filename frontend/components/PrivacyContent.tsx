@@ -24,9 +24,7 @@ export function PrivacyPolicy() {
           margin-bottom: 3rem;
           padding: 2rem;
           border-radius: 12px;
-          background-color: rgba(17, 24, 39, 0.5);
-          backdrop-filter: blur(10px);
-          border: 1px solid #1f2937;
+
           position: relative;
           opacity: 0;
           transform: translateY(20px);

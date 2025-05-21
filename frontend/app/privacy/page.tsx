@@ -1,5 +1,5 @@
 import PrivacyPolicy from "@/components/PrivacyContent"
-
+import Footer from "@/components/Footer"
 export default function Privacy() {
   return (
 <main
@@ -15,7 +15,9 @@ export default function Privacy() {
   }}
 >
   <PrivacyPolicy />
+      <Footer/>  
     </main>
+
   )
 }
 
