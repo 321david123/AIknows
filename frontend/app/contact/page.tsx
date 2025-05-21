@@ -28,7 +28,8 @@ export default function Contact() {
         position: "relative",
         // opacity: 0,
         transform: "translateY(20px)",
-        transition: "opacity 0.5s ease, transform 0.5s ease"
+        transition: "opacity 0.5s ease, transform 0.5s ease",
+        marginBottom: "20%",
       }}
     >
       <ContactContent />

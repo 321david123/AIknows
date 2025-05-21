@@ -25,7 +25,7 @@ export default function Terms() {
           padding: "2rem",
           borderRadius: "12px",
           backgroundColor: "rgba(17, 24, 39, 0.5)",
-          backdropFilter: "blur(10px)",
+          // backdropFilter: "blur(10px)",
           border: "1px solid #1f2937",
           position: "relative",
           // opacity: 0,
