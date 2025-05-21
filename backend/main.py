@@ -1,16 +1,18 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fpdf import FPDF
 from io import BytesIO
 from starlette.responses import StreamingResponse
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from dotenv import load_dotenv
 from supabase import create_client, Client
+import resend
 import uuid
 import os
 from openai import OpenAI
 import requests
+from passlib.hash import bcrypt
 import json
 
 load_dotenv()  # Load environment variables from .env file
@@ -25,6 +27,10 @@ client = OpenAI(
 SERP_API_KEY = os.getenv("SERP_API_KEY")
 supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 
+# --- Resend email client setup ---
+resend.api_key = os.getenv("RESEND_API_KEY")
+
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # For production, set this to your frontend URL.
@@ -35,7 +41,7 @@ app.add_middleware(
 
 # Global dictionary to store follow-up questions per session or user
 user_followup_questions = {}
-
+verification_codes = {}
 
 class AnswerPayload(BaseModel):
     answer: str
@@ -402,22 +408,6 @@ async def download_report():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/submit-profile")
-async def submit_profile(payload: ProfilePayload):
-    try:
-        profile_id = str(uuid.uuid4())
-        profile_data = {
-            "id": profile_id,
-            "name": payload.name,
-            "summary": payload.summary,
-            "traits": payload.traits,
-            "answers": payload.answers,
-            "public_data": payload.public_data,
-        }
-        supabase.table("profiles").insert(profile_data).execute()
-        return {"message": "Profile saved successfully", "id": profile_id}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 class WhoAmIRequest(BaseModel):
@@ -649,3 +639,126 @@ Return in this exact JSON format:
     except Exception as e:
         print("Error in /enhanced-whoami:", str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
+# --- Verification code request endpoint ---
+@app.post("/request-verification-code")
+async def request_verification_code(request: Request):
+    try:
+        body = await request.json()
+        email = body.get("email")
+        print("Verification code request received for email:", email)
+        email = email.strip().lower()
+        existing_user = supabase.table("profiles").select("id").eq("email", email).execute()
+        if existing_user.data:
+            return JSONResponse(
+                content={"success": False, "error": "Email already registered."},
+                status_code=400
+            )
+        if not email:
+            raise HTTPException(status_code=400, detail="Email is required.")
+        password = body.get("password")
+        if not password:
+            raise HTTPException(status_code=400, detail="Password is required.")
+
+        # Only send verification code and save minimal user data
+        print("Sending verification code and storing minimal user data...")
+        verification_code = str(uuid.uuid4())[:6].upper()
+        user_data = {
+            "id": str(uuid.uuid4()),
+            "name": "placeholder",  # Temporary placeholder to satisfy NOT NULL constraint
+            "email": email,
+            "password": bcrypt.hash(password),
+            "verification_code": verification_code,
+            "is_secured": False,
+            "approved": False
+        }
+
+        supabase.table("profiles").insert(user_data).execute()
+        print("Minimal user data saved to Supabase (for verification):", user_data)
+        # Try sending verification email
+        data = resend.Emails.send({
+            "from": "AIknows <team@ai-knows.me>",
+            "to": [email],
+            "subject": "You're in the waitlist! 🎉",
+            "html": f"<p>Thanks for signing up to AIknows.me – you're officially on the waitlist!</p><p>Your verification code is: <strong>{verification_code}</strong></p>"
+        })
+
+        if not data or 'error' in data:
+            print("Resend failed response:", data)
+            raise HTTPException(status_code=500, detail="Failed to send verification email.")
+
+        print("Verification email sent successfully:", data)
+        return JSONResponse(content={"success": True, "data": data})
+
+    except Exception as e:
+        print("Verification code request error:", str(e))  # Log the error to console
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+
+@app.post("/verify-code")
+async def verify_code(request: Request):
+    try:
+        body = await request.json()
+        email = body.get("email")
+        code = body.get("code")
+
+        if not email or not code:
+            raise HTTPException(status_code=400, detail="Email and code are required.")
+
+        email = email.strip().lower()
+        check_user = supabase.table("profiles").select("*").eq("email", email).single().execute()
+        if not check_user.data:
+            raise HTTPException(status_code=404, detail="User not found.")
+
+        if check_user.data.get("verification_code") != code:
+            raise HTTPException(status_code=401, detail="Invalid verification code.")
+
+        # Mark the profile as verified
+        supabase.table("profiles").update({"is_secured": True}).eq("email", email).execute()
+
+        return JSONResponse(content={"success": True, "message": "Verification successful."})
+    except Exception as e:
+        print("Verification code error:", str(e))
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)
+
+# --- Submit profile endpoint ---
+@app.post("/submit-profile")
+async def submit_profile(request: Request):
+    try:
+        body = await request.json()
+        print("Submit profile payload:", body)
+        email = body.get("email")
+        code = body.get("code")
+        name = body.get("name")
+        answers = body.get("answers", [])
+        summary = body.get("summary", "")
+        search_summary = body.get("search_summary", "")
+        traits = body.get("traits", [])
+        public_data = body.get("public_data", {})
+
+        if not all([email, code, name]):
+            raise HTTPException(status_code=400, detail=f"Missing required fields: email={email}, code={code}, name={name}")
+
+        email = email.strip().lower()
+        check_user = supabase.table("profiles").select("*").eq("email", email).single().execute()
+        if not check_user.data:
+            raise HTTPException(status_code=404, detail="User not found.")
+
+        if check_user.data.get("verification_code") != code:
+            raise HTTPException(status_code=401, detail="Invalid verification code.")
+
+        update_data = {
+            "name": name,
+            "answers": answers,
+            "summary": summary,
+            "search_summary": search_summary,
+            "traits": traits,
+            "public_data": public_data,
+            "is_secured": True
+        }
+
+        supabase.table("profiles").update(update_data).eq("email", email).execute()
+        return JSONResponse(content={"success": True, "message": "Profile verified and updated successfully."})
+    except Exception as e:
+        print("Profile submission error:", str(e))
+        return JSONResponse(content={"success": False, "error": str(e)}, status_code=500)

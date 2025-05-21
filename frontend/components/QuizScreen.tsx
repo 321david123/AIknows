@@ -478,7 +478,6 @@ export default function QuizScreen() {
           font-weight: bold;
           animation: pulse 1.5s infinite;
         }
-
         /* .clicked now reflects a confirmed/submitted state */
 
         .dots-loader {
