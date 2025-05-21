@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { motion } from "framer-motion";
+import { AnimatePresence, motion } from "framer-motion";
 import Link from "next/link";
 import { Download, Share2 } from "lucide-react";
+import supabase from "../lib/supabaseClient";
 
 export default function ProfileScreen() {
   const [report, setReport] = useState("");
@@ -18,6 +19,16 @@ export default function ProfileScreen() {
   const [futureOutcomes, setFutureOutcomes] = useState<string>("");
 
   const [showBadgeInfo, setShowBadgeInfo] = useState(false);
+
+  const [showEmailModal, setShowEmailModal] = useState(false);
+  const [emailInput, setEmailInput] = useState("");
+  const [passwordInput, setPasswordInput] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // New state for secure profile code verification
+  const [isSecured, setIsSecured] = useState(false);
+  const [showCodeModal, setShowCodeModal] = useState(false);
+  const [verificationCode, setVerificationCode] = useState("");
 
   // State for TRON-style animation progress and line positions
   const [progress, setProgress] = useState(0);
@@ -136,6 +147,109 @@ export default function ProfileScreen() {
     }, 1000);
     return () => clearInterval(interval);
   }, [loading]);
+
+  // Handler to secure the profile and send verification code email
+  const handleSecureProfile = async (email: string, password: string) => {
+    if (!email || !password) {
+      alert("Email and password are required.");
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/request-verification-code`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password })
+      });
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        console.error("Error requesting verification code:", res.statusText, errorData);
+        alert("Failed to send verification code.");
+        return;
+      }
+      setShowCodeModal(true); // Only show code modal on success
+    } catch (err) {
+      console.error("Verification request error:", err);
+      alert("Error sending verification code.");
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  // Handler to verify confirmation code and send profile to Supabase after successful verification
+  const handleVerifyCode = async () => {
+    try {
+      // Step 1: verify code only
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/verify-code`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: emailInput, code: verificationCode }),
+      });
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        console.error("Verification failed:", res.statusText, errorData);
+        alert("Invalid or expired code.");
+        return;
+      }
+
+      // Step 2: after successful verification, send profile data to /submit-profile
+      try {
+        // Load answers, summary, and user name from localStorage
+        const storedAnswers = JSON.parse(localStorage.getItem("quizAnswers") || "[]");
+        const storedSummary = localStorage.getItem("quizSummary") || "";
+        const storedSearchSummary = localStorage.getItem("quizSearchSummary") || "";
+
+        const validAnswers = Array.isArray(storedAnswers)
+          ? storedAnswers.filter((a: any) => a.answer && a.answer.trim() !== "")
+          : [];
+
+        // Derive formattedName from quizName or first quiz answer
+        const rawName =
+          localStorage.getItem("quizName") ||
+          (validAnswers[0]?.answer ? validAnswers[0].answer : "Anonymous");
+        const formattedName: string = rawName
+          .split(" ")
+          .map((part: string) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+          .join(" ");
+
+        // Log storedSummary and storedSearchSummary before API call
+        console.log("storedSummary:", storedSummary);
+        console.log("storedSearchSummary:", storedSearchSummary);
+
+        const submitProfileRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/submit-profile`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: emailInput,
+            password: passwordInput,
+            code: verificationCode,
+            name: formattedName,
+            summary: storedSummary,
+            search_summary: storedSearchSummary,
+            answers: validAnswers.map((a: any) => `${a.question}: ${a.answer}`)
+          }),
+        });
+
+        if (!submitProfileRes.ok) {
+          const errorData = await submitProfileRes.json().catch(() => ({}));
+          console.error("Error sending profile to Supabase:", submitProfileRes.statusText, errorData);
+          alert("Failed to save profile after verification.");
+          // Still allow user to continue, but inform about the error
+        }
+      } catch (profileSendErr) {
+        console.error("Error sending profile to Supabase:", profileSendErr);
+        alert("Failed to save profile after verification.");
+      }
+
+      alert("Email verified! Your profile is now secured.");
+      setIsSecured(true);
+      setShowCodeModal(false);
+    } catch (err) {
+      console.error("Error verifying code:", err);
+      alert("Verification error.");
+    }
+  };
 
   if (loading) {
     const numLines = linePositions.length;
@@ -381,6 +495,10 @@ export default function ProfileScreen() {
           </div>
         )}
 
+        {/* Optionally show locked/unlocked state */}
+        <div style={{ marginBottom: "1rem", fontWeight: "bold" }}>
+          {isSecured ? "🔓 Profile Secured" : "🔒 Profile Not Secured"}
+        </div>
         {/* Profile Actions */}
         <div
           className="profile-actions"
@@ -405,6 +523,28 @@ export default function ProfileScreen() {
           >
             <Share2 /> Share Profile
           </button>
+          {!isSecured && (
+            <button
+              onClick={() => {
+                // Prevent regression to the initial modal if code modal was already shown
+                if (!showCodeModal) {
+                  setShowCodeModal(false);
+                }
+                setShowEmailModal(true);
+              }}
+              className="profile-button primary"
+            >
+              🔒 Secure Your Profile
+            </button>
+          )}
+          <Link href="/leaderboard" passHref>
+            <button
+              className="profile-button secondary"
+              style={{ padding: "0.5rem 1rem", fontSize: "1rem" }}
+            >
+              🏆 See Leaderboard
+            </button>
+          </Link>
         </div>
 
         <Link
@@ -415,6 +555,130 @@ export default function ProfileScreen() {
           Retake Quiz
         </Link>
       </div>
+      {showEmailModal && (
+        <div
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            width: "100%",
+            height: "100%",
+            background: "rgba(0, 0, 0, 0.8)",
+            backdropFilter: "blur(6px)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 1000
+          }}
+        >
+          <AnimatePresence mode="wait">
+            <motion.div
+              key={showCodeModal ? "code" : "email"}
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: 10 }}
+              transition={{ duration: 0.3 }}
+              style={{
+                background: "#fff",
+                borderRadius: "12px",
+                padding: "2rem",
+                boxShadow: "0 8px 24px rgba(0, 0, 0, 0.2)",
+                color: "#000",
+                width: "90%",
+                maxWidth: "500px"
+              }}
+            >
+              {!showCodeModal ? (
+                <>
+                  <h2 style={{ marginBottom: "1rem" }}>Join the Leaderboard</h2>
+                  <p style={{ fontSize: "0.9rem", color: "#555" }}>Enter your email to secure your profile and get featured.</p>
+                  <input
+                    type="email"
+                    placeholder="your@email.com"
+                    value={emailInput}
+                    onChange={(e) => setEmailInput(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "0.75rem",
+                      marginTop: "1rem",
+                      marginBottom: "1rem",
+                      border: "1px solid #ccc",
+                      borderRadius: "8px"
+                    }}
+                  />
+                  <input
+                    type="password"
+                    placeholder="Create a password"
+                    value={passwordInput}
+                    onChange={(e) => setPasswordInput(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "0.75rem",
+                      marginTop: "0.5rem",
+                      marginBottom: "1rem",
+                      border: "1px solid #ccc",
+                      borderRadius: "8px"
+                    }}
+                  />
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <button
+                      onClick={async () => {
+                        await handleSecureProfile(emailInput, passwordInput);
+                        // setShowCodeModal will be called inside handleSecureProfile after success
+                      }}
+                      style={{ padding: "0.5rem 1rem", background: "#0070f3", color: "#fff", border: "none", borderRadius: "6px" }}
+                      disabled={isSubmitting}
+                    >
+                      {isSubmitting ? "Submitting..." : "Submit"}
+                    </button>
+                    <button
+                      onClick={() => setShowEmailModal(false)}
+                      style={{ padding: "0.5rem 1rem", background: "#ccc", border: "none", borderRadius: "6px" }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <h2 style={{ marginBottom: "1rem" }}>Provide the code you just received to your email</h2>
+                  <input
+                    type="text"
+                    placeholder="Enter the code from your email"
+                    value={verificationCode}
+                    onChange={(e) => setVerificationCode(e.target.value)}
+                    style={{
+                      width: "100%",
+                      padding: "0.75rem",
+                      marginBottom: "1rem",
+                      border: "1px solid #ccc",
+                      borderRadius: "8px"
+                    }}
+                  />
+                  <div style={{ display: "flex", justifyContent: "space-between" }}>
+                    <button
+                      onClick={handleVerifyCode}
+                      style={{ padding: "0.5rem 1rem", background: "#0070f3", color: "#fff", border: "none", borderRadius: "6px" }}
+                    >
+                      Verify
+                    </button>
+                    <button
+                      onClick={() => {
+                        setShowEmailModal(false);
+                        // Do not reset showCodeModal here to prevent regression to email/password modal
+                        // setShowCodeModal(false);
+                      }}
+                      style={{ padding: "0.5rem 1rem", background: "#ccc", border: "none", borderRadius: "6px" }}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </>
+              )}
+            </motion.div>
+          </AnimatePresence>
+        </div>
+      )}
       <style jsx>{`
         @keyframes glow {
           0% {

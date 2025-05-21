@@ -3,7 +3,7 @@ import Footer from "@/components/Footer"
 
 export default function Quiz() {
   return (
-    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
+    <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" , backgroundColor: "#fff" }}>
       <main
         style={{
           flex: 1,
