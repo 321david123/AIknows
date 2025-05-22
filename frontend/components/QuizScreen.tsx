@@ -84,7 +84,13 @@ export default function QuizScreen() {
       }
     }
   }, []);
-
+// Fallback questions for unknown user flow
+const fallbackQuestionsList = [
+  "What’s your current role or field of work?",
+  "What motivates you right now?",
+  "What’s one goal you’re chasing this year?",
+  "Tell us something most people don’t know about you."
+];
   // User context (geo, lang, hour, fingerprint)
   useEffect(() => {
     async function fetchContext() {
@@ -206,10 +212,9 @@ export default function QuizScreen() {
         setButtonClicked(false);
         return;
       }
-      try {
-        // Submit answer to backend if needed (skip for greeting/name)
-        let data: any = null;
-        if (knownUser) {
+      // Known user branch unchanged...
+      if (knownUser) {
+        try {
           const name = qaList[0].answer;
           const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/submit-known-answer`, {
             method: "POST",
@@ -224,55 +229,96 @@ export default function QuizScreen() {
               search_summary: localStorage.getItem("quizSearchSummary") || "",
             }),
           });
-          data = await res.json();
-        } else {
-          // Unknown user: update profile with all Q&A so far
-          const name = qaList[0].answer;
-          const answered = qaList.slice(2, currentIdx + 1).filter(q => q.answer && q.answer.trim());
-          const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/enhanced-whoami`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              name,
-              user_id: userId,
-              questions: answered.map(p => p.question),
-              answers: answered.map(p => p.answer),
-            }),
-          });
-          data = await res.json();
-        }
-        // For known users, append next question if provided
-        if (knownUser && data?.nextQuestions && data.nextQuestions.length > 0) {
-          setQaList(prev => {
-            const updated = [...prev];
-            // Only append if not already present
-            if (!updated.some(q => q.question === data.nextQuestions[0])) {
-              updated.push({ question: data.nextQuestions[0], answer: "" });
-            }
-            return updated;
-          });
-        }
-        // If last question, phase = Done
-        if (currentIdx >= (totalQuestions ? totalQuestions + 1 : qaList.length - 1)) {
-          // Save answers and redirect
-          if (typeof window !== "undefined") {
-            localStorage.setItem("quizAnswers", JSON.stringify(qaList));
-            localStorage.setItem("quizSummary", "placeholder-summary");
+          const data = await res.json();
+          // For known users, append next question if provided
+          if (data?.nextQuestions && data.nextQuestions.length > 0) {
+            setQaList(prev => {
+              const updated = [...prev];
+              if (!updated.some(q => q.question === data.nextQuestions[0])) {
+                updated.push({ question: data.nextQuestions[0], answer: "" });
+              }
+              return updated;
+            });
           }
-          setPhase(QuizPhase.Done);
-          setButtonClicked(false);
-          router.push("/profile");
-          return;
-        } else {
-          setCurrentIdx(currentIdx + 1);
+          // If last question, phase = Done
+          if (currentIdx >= (totalQuestions ? totalQuestions + 1 : qaList.length - 1)) {
+            if (typeof window !== "undefined") {
+              localStorage.setItem("quizAnswers", JSON.stringify(qaList));
+              localStorage.setItem("quizSummary", "placeholder-summary");
+            }
+            setPhase(QuizPhase.Done);
+            setButtonClicked(false);
+            router.push("/profile");
+            return;
+          } else {
+            setCurrentIdx(currentIdx + 1);
+            setButtonClicked(false);
+          }
+        } catch (err) {
+          // eslint-disable-next-line
+          console.error("Error submitting answer:", err);
           setButtonClicked(false);
         }
-      } catch (err) {
-        // eslint-disable-next-line
-        console.error("Error submitting answer:", err);
+        return;
+      } else {
+        // Unknown user fallback
+        // Only call enhanced-whoami once when arriving at first question slot
+        if (currentIdx === 2) {
+          const name = qaList[0].answer;
+          const greetingEntry = qaList[1];
+          try {
+            const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/enhanced-whoami`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                name,
+                user_id: userId,
+                questions: qaList.slice(2, currentIdx + 1).map(entry => entry.question),
+                answers: qaList.slice(2, currentIdx + 1).map(entry => entry.answer),
+              }),
+            });
+            const data = await res.json();
+            // If still not matched, use fallback questions list
+            if (!data.gpt.matched) {
+              const followups = fallbackQuestionsList.map(q => ({ question: q, answer: "" }));
+              setQaList([
+                { question: "What's your full name?", answer: name },
+                greetingEntry,
+                ...followups,
+              ]);
+              setTotalQuestions(followups.length);
+              setKnownUser(false);
+              setCurrentIdx(2);
+              setButtonClicked(false);
+              return;
+            } else {
+              // Matched: use GPT-provided follow-up question
+              const followups = [{ question: data.gpt.first_question, answer: "" }];
+              setQaList([
+                { question: "What's your full name?", answer: name },
+                greetingEntry,
+                ...followups,
+              ]);
+              setTotalQuestions(followups.length);
+              setKnownUser(true);
+              setCurrentIdx(2);
+              setButtonClicked(false);
+              return;
+            }
+          } catch (err) {
+            console.error("Enhanced whoami error:", err);
+          }
+        }
+        // Subsequent fallback question progression
+        if (currentIdx < qaList.length - 1) {
+          setCurrentIdx(currentIdx + 1);
+        } else {
+          setPhase(QuizPhase.Done);
+          router.push("/profile");
+        }
         setButtonClicked(false);
+        return;
       }
-      return;
     }
   };
 
