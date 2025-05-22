@@ -585,13 +585,14 @@ async def enhanced_who_am_i(payload: EnhancedWhoAmIRequest):
             print(context_info)
         print("Context Info for GPT:", context_info)
         search_gen_prompt = f"""
-Given the following information about a person, generate a concise and precise Google search query that could help us identify if the person is well known. Focus the query to surface key information or notable results.
+You are given information about a person. Generate a concise Google search query that will surface this exact individual. Prioritize any unique identifiers mentioned (e.g., company names, product names, project names, or titles) from the answers. If a company or project is named, include it in quotes.
 
 {context_info}
 
-Return only the search query string.
+Return only the optimized search query string.
         """
 
+        # Build multiple search queries: generic + LinkedIn + GitHub
         search_gen = client.chat.completions.create(
             model="gpt-3.5-turbo",
             messages=[{"role": "user", "content": search_gen_prompt}],
@@ -600,26 +601,58 @@ Return only the search query string.
         search_query = search_gen.choices[0].message.content.strip()
         print("Generated Search Query:", search_query)
 
-        serp_url = (
-            f"https://serpapi.com/search.json?q={search_query}&api_key={SERP_API_KEY}"
-        )
-        print("SerpAPI URL:", serp_url)
-        serp_response = requests.get(serp_url)
-        serp_response.raise_for_status()
-        results = serp_response.json()
-        organic_results = results.get("organic_results")
-        first_question = random.choice(fallback_questions)
+        # Extract a concise profession/field from the user's first answer
+        print(payload.answers[0])
+        if payload.answers:
+            prof_prompt = (
+                f"Extract a concise profession or field from this user response: "
+                f"'{payload.answers[0]}'. Provide a short phrase suitable for a search query."
+            )
+            prof_resp = client.chat.completions.create(
+                model="gpt-3.5-turbo",
+                messages=[{"role": "user", "content": prof_prompt}],
+                temperature=0.3,
+            )
+            profession = prof_resp.choices[0].message.content.strip()
+        else:
+            profession = ""
+        
+        queries = [
+            search_query,
+            f"site:linkedin.com/in {payload.name} {profession}".strip(),
+            f"site:github.com {payload.name}".strip(),
+        ]
+        combined = []
+        for q in queries:
+            url = f"https://serpapi.com/search.json?q={q}&api_key={SERP_API_KEY}"
+            # print("SerpAPI URL:", url)
+            resp = requests.get(url)
+            resp.raise_for_status()
+            data = resp.json().get("organic_results", [])
+            if data:
+                combined.extend(data)
+        # Dedupe by link
+        seen = set()
+        organic_results = []
+        for item in combined:
+            link = item.get("link")
+            if link and link not in seen:
+                seen.add(link)
+                organic_results.append(item)
+        print("Combined organic results:", organic_results)
+        # Fallback if nothing found
         if not organic_results:
-                print("No organic results found — switching to fallback input request.")
-                return {
-                 "searchResults": [],
-                 "gpt": {
-                        "matched": False,
-                        "summary": "",
-                        "number_of_questions": 7,
-                        "first_question": first_question,
-                  },
-              }
+            print("No organic results from multiple searches — switching to fallback.")
+            first_question = random.choice(fallback_questions)
+            return {
+                "searchResults": [],
+                "gpt": {
+                    "matched": False,
+                    "summary": "",
+                    "number_of_questions": 7,
+                    "first_question": first_question,
+                },
+            }
         print(organic_results)
         snippets = []
         for result in organic_results[:5]:
