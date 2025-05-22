@@ -14,6 +14,10 @@ from openai import OpenAI
 import requests
 from passlib.hash import bcrypt
 import json
+import random
+
+
+
 
 load_dotenv()  # Load environment variables from .env file
 app = FastAPI()
@@ -30,6 +34,12 @@ supabase = create_client(SUPABASE_URL, SUPABASE_SERVICE_KEY)
 # --- Resend email client setup ---
 resend.api_key = os.getenv("RESEND_API_KEY")
 
+fallback_questions = [
+  "What are you currently working on or learning?",
+  "What motivates you right now?",
+  "What’s one goal you’re excited about?",
+  "Tell us something unique about your journey so far."
+]
 
 app.add_middleware(
     CORSMiddleware,
@@ -107,17 +117,6 @@ Return in this JSON format (including the new fields):
     try:
         profile_data = json.loads(response.choices[0].message.content)
         print("Parsed Profile Data:", profile_data)
-        # Generate DALL·E image using the prompt
-        dalle_response = client.images.generate(
-            model="dall-e-3",
-            prompt="A 1024×1024 minimal abstract: a neutral background with a single circle split down the middle. Each half is filled with many thin, smooth horizontal bands forming gentle waves in its own color palette. No text, icons, or extra elements—just the clean, layered circle.",
-            # prompt=profile_data["image_prompt"],
-            size="1024x1024",
-            quality="standard",
-            n=1
-        )
-        image_url = dalle_response.data[0].url
-        profile_data["image_url"] = image_url
         # Ensure future_outcomes and recommendations are preserved
         # (If not present, provide defaults)
         profile_data["future_outcomes"] = profile_data.get("future_outcomes", "")
@@ -174,7 +173,7 @@ async def submit_answer(payload: AnswerPayload):
                 serp_response = requests.get(serp_url)
                 serp_response.raise_for_status()
                 results = serp_response.json()
-                print("Raw SerpAPI response parsed.")
+                print("Raw SerpAPI response parsed. IN LINE 187")
 
                 organic_results = results.get("organic_results")
                 if not organic_results:
@@ -352,6 +351,7 @@ async def submit_known_answer(payload: AnswerPayload):
             temperature=0.7,
         )
         next_question = gpt_response.choices[0].message.content
+        print("Next question generated:", next_question)
         return {"nextQuestions": [next_question]}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -380,10 +380,39 @@ async def generate_report_endpoint(payload: ProfilePayload):
         "report": profile_data["summary"],
         "uniqueness_score": profile_data["uniqueness_score"],
         "badge": profile_data.get("badge", ""),
-        "image_url": profile_data["image_url"],
         "future_outcomes": profile_data.get("future_outcomes", ""),
         "recommendations": profile_data.get("recommendations", []),
     }
+
+
+# --- Generate DALL·E image endpoint ---
+class ImagePayload(BaseModel):
+    name: str
+    traits: list
+    summary: str = ""
+
+
+@app.post("/generate-image")
+async def generate_image(payload: ImagePayload):
+    try:
+        # Use the same DALL·E prompt as previously in generate_profile_report_with_image
+        image_prompt = (
+            "A 1024×1024 minimal abstract: a neutral background with a single circle split down the middle. "
+            "Each half is filled with many thin, smooth horizontal bands forming gentle waves in its own color palette. "
+            "No text, icons, or extra elements—just the clean, layered circle."
+        )
+        dalle_response = client.images.generate(
+            model="dall-e-3",
+            prompt=image_prompt,
+            size="1024x1024",
+            quality="standard",
+            n=1
+        )
+        image_url = dalle_response.data[0].url
+        return {"image_url": image_url}
+    except Exception as e:
+        print("Error generating image:", str(e))
+        raise HTTPException(status_code=500, detail="Image generation failed.")
 
 
 @app.get("/download-report")
@@ -456,11 +485,20 @@ async def who_am_i(payload: WhoAmIRequest):
         serp_response = requests.get(serp_url)
         serp_response.raise_for_status()  # Raises error for non-2xx responses
         results = serp_response.json()
-        print("Raw SerpAPI response parsed.")
+        print("Raw SerpAPI response parsed. IN LINE 469")
 
         organic_results = results.get("organic_results")
         if not organic_results:
-            raise ValueError("No organic_results found in SerpAPI response")
+            print("No organic results found — switching to fallback input request.")
+            return {
+                "searchResults": [],
+                "gpt": {
+                    "matched": False,
+                    "summary": "",
+                    "number_of_questions": 0,
+                    "first_question": "We couldn't find public information about you. Could you share your LinkedIn or GitHub to help us learn more?",
+                },
+            }
 
         snippets = []
         for result in organic_results[:5]:
@@ -510,7 +548,7 @@ async def who_am_i(payload: WhoAmIRequest):
             raise HTTPException(
                 status_code=500, detail="Failed to parse GPT follow-up response"
             )
-
+        print("sup")
         if payload.user_id:
             user_followup_questions[payload.user_id] = {
                 "matched": followup_data["matched"],
@@ -570,8 +608,18 @@ Return only the search query string.
         serp_response.raise_for_status()
         results = serp_response.json()
         organic_results = results.get("organic_results")
+        first_question = random.choice(fallback_questions)
         if not organic_results:
-            raise ValueError("No organic_results found in SerpAPI response")
+                print("No organic results found — switching to fallback input request.")
+                return {
+                 "searchResults": [],
+                 "gpt": {
+                        "matched": False,
+                        "summary": "",
+                        "number_of_questions": 7,
+                        "first_question": first_question,
+                  },
+              }
         print(organic_results)
         snippets = []
         for result in organic_results[:5]:
