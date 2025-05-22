@@ -41,10 +41,18 @@ export default function ProfileScreen() {
   useEffect(() => {
     if (didFetchReport.current) return;
     didFetchReport.current = true;
-    localStorage.removeItem("profileImageUrl");
+    // localStorage.removeItem("profileImageUrl");
     const storedImageUrl = localStorage.getItem("profileImageUrl");
+    // Preload image from localStorage before fetching report
+    if (storedImageUrl) {
+      setPersonalityImage(storedImageUrl);
+    }
 
     async function fetchReport() {
+      // Declare these above the try block so they are accessible in finally
+      let formattedName: string = "";
+      let data: any = {};
+      const storedImageUrl = localStorage.getItem("profileImageUrl");
       try {
         // TEMP: Use dummy payload that matches backend format
         // Load actual answers and summary from localStorage
@@ -59,7 +67,7 @@ export default function ProfileScreen() {
         // Determine raw name (persisted or fallback)
         const rawName = localStorage.getItem("quizName") || validAnswers[0].answer;
         // Capitalize each word
-        const formattedName: string = rawName
+        formattedName = rawName
           .split(" ")
           .map((part: string) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
           .join(" ");
@@ -102,7 +110,7 @@ export default function ProfileScreen() {
           return;
         }
 
-        const data = await res.json();
+        data = await res.json();
         // Store the badge text if provided
         if (data.badge) {
           setBadge(data.badge);
@@ -111,10 +119,7 @@ export default function ProfileScreen() {
         if (data.traits) setTraits(data.traits);
         if (data.public_data) setPublicData(data.public_data);
         if (data.recommendations) setRecommendations(data.recommendations);
-        setPersonalityImage(data.image_url || storedImageUrl);
-        if (data.image_url) {
-          localStorage.setItem("profileImageUrl", data.image_url);
-        }
+        // setPersonalityImage(data.image_url || storedImageUrl); // removed as per instructions
         // Store GPT-generated future outcomes if provided
         if (data.future_outcomes) {
           setFutureOutcomes(data.future_outcomes);
@@ -122,7 +127,36 @@ export default function ProfileScreen() {
       } catch (error) {
         console.error("Error fetching report:", error);
       } finally {
+        setProgress(100); // instantly complete animation
         setLoading(false);
+        // 🔄 Generate image after showing profile
+        // Only generate/set image if not already cached in localStorage
+        const storedImageUrl = localStorage.getItem("profileImageUrl");
+        if (!storedImageUrl) {
+          try {
+            const imageRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/generate-image`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                name: formattedName,
+                traits: data.traits || [],
+                summary: data.report || ""
+              }),
+            });
+
+            if (imageRes.ok) {
+              const imageData = await imageRes.json();
+              if (imageData.image_url) {
+                setPersonalityImage(imageData.image_url);
+                localStorage.setItem("profileImageUrl", imageData.image_url);
+              }
+            } else {
+              console.warn("Image generation failed:", await imageRes.text());
+            }
+          } catch (err) {
+            console.error("Error generating image:", err);
+          }
+        }
       }
     }
     fetchReport();
@@ -140,13 +174,6 @@ export default function ProfileScreen() {
   }, []);
 
   // Effect to increase progress over time for TRON animation
-  useEffect(() => {
-    if (!loading) return;
-    const interval = setInterval(() => {
-      setProgress((prev) => (prev < 100 ? prev + 10 : prev));
-    }, 1000);
-    return () => clearInterval(interval);
-  }, [loading]);
 
   // Handler to secure the profile and send verification code email
   const handleSecureProfile = async (email: string, password: string) => {
@@ -362,6 +389,8 @@ export default function ProfileScreen() {
               borderRadius: "50%",
               objectFit: "cover",
               marginRight: "1.5rem",
+              filter: !personalityImage ? "blur(8px)" : "none",
+              transition: "filter 0.5s ease-in-out",
             }}
           />
           <h1 style={{ fontSize: "2rem", margin: 0 }}>

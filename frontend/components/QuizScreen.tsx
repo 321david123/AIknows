@@ -9,32 +9,66 @@ import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import LoadingVideo from "./ui/loadvid";
 
+// Custom typing effect
+function TypingEffect({
+  text,
+  speed = 20,
+  onComplete,
+}: {
+  text: string;
+  speed?: number;
+  onComplete?: () => void;
+}) {
+  const [displayed, setDisplayed] = useState("");
+  useEffect(() => {
+    setDisplayed("");
+    let idx = 0;
+    const timer = setInterval(() => {
+      setDisplayed(text.slice(0, idx + 1));
+      idx += 1;
+      if (idx >= text.length) {
+        clearInterval(timer);
+        onComplete && onComplete();
+      }
+    }, speed);
+    return () => clearInterval(timer);
+  }, [text, speed]);
+  return <>{displayed}</>;
+}
+
 type QuizEntry = {
   question: string;
   answer: string;
   serpResult?: string;
 };
 
+enum QuizPhase {
+  Name = "Name",
+  Greeting = "Greeting",
+  Questions = "Questions",
+  Done = "Done",
+}
+
+
 export default function QuizScreen() {
   // Always call hooks unconditionally
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [currentQuestion, setCurrentQuestion] = useState(0);
-  const [answers, setAnswers] = useState<string[]>([]);
-  const [questions, setQuestions] = useState<string[]>([]);
-  const [quizData, setQuizData] = useState<QuizEntry[]>([]);
+
+  // Phase management
+  const [phase, setPhase] = useState<QuizPhase>(QuizPhase.Name);
+  // Unified list of question/answer pairs (first is always name, then greeting, then Qs)
+  const [qaList, setQaList] = useState<QuizEntry[]>([{ question: "What's your full name?", answer: "" }]);
   const [userId, setUserId] = useState<string | null>(null);
-  const [typedGreeting, setTypedGreeting] = useState("");
-  const [typedIntro, setTypedIntro] = useState("");
-  const [finalGreetingHTML, setFinalGreetingHTML] = useState("");
-  const [startGreeting, setStartGreeting] = useState(false);
-  const [knownUser, setKnownUser] = useState(false);
-
-  // Button click state for feedback
-  const [buttonClicked, setButtonClicked] = useState(false);
-  const [totalQuestions, setTotalQuestions] = useState<number | null>(null);
   const [userContext, setUserContext] = useState<{ region?: string; country?: string; language?: string; hour?: number; fingerprint?: string }>({});
+  const [knownUser, setKnownUser] = useState(false);
+  const [totalQuestions, setTotalQuestions] = useState<number | null>(null);
+  const [finalGreetingHTML, setFinalGreetingHTML] = useState("");
+  const [buttonClicked, setButtonClicked] = useState(false);
+  const [typingDone, setTypingDone] = useState(false);
+  const [currentIdx, setCurrentIdx] = useState(0); // Index in qaList for input
 
+  // User ID from localStorage
   useEffect(() => {
     if (typeof window !== "undefined") {
       const stored = localStorage.getItem("user_id");
@@ -48,38 +82,7 @@ export default function QuizScreen() {
     }
   }, []);
 
-  useEffect(() => {
-    setQuestions([
-      "What's your full name?",
-    ]);
-    setTypedIntro(""); // ensure intro is reset
-  }, []);
-
-  useEffect(() => {
-    if (currentQuestion === 0 && questions[0]) {
-      setTypedIntro(""); // reset before interval starts
-      const fullText = questions[0];
-      const interval = setInterval(() => {
-        setTypedIntro((prev) => prev + (fullText[prev.length] || ""));
-        if (typedIntro.length >= fullText.length - 1) clearInterval(interval);
-      }, 20);
-      return () => clearInterval(interval);
-    }
-  }, [currentQuestion, questions]);
-
-  useEffect(() => {
-    if (currentQuestion === 1 && questions[1] && startGreeting) {
-      setTypedGreeting("");
-      const fullText = questions[1];
-      const interval = setInterval(() => {
-        setTypedGreeting((prev) => prev + (fullText[prev.length] || ""));
-        if (typedGreeting.length >= fullText.length - 1) clearInterval(interval);
-      }, 20);
-      return () => clearInterval(interval);
-    }
-  }, [currentQuestion, questions, startGreeting]);
-
-  // Collect basic user context: region, country, language, hour, fingerprint
+  // User context (geo, lang, hour, fingerprint)
   useEffect(() => {
     async function fetchContext() {
       try {
@@ -97,50 +100,47 @@ export default function QuizScreen() {
           hour,
           fingerprint,
         });
-        console.log("User context:", {
-          region: geo.region,
-          country: geo.country_name,
-          language,
-          hour,
-          fingerprint,
-        });
+        // console.log("User context:", { region: geo.region, country: geo.country_name, language, hour, fingerprint });
       } catch (err) {
-        console.warn("Geo/location context unavailable:", err);
+        // console.warn("Geo/location context unavailable:", err);
       }
     }
     fetchContext();
   }, []);
 
-  if (status === "loading" || questions.length === 0) {
+  // Progress calculation
+  const questionsAnswered = qaList.filter((q, i) => i > 1 && i < currentIdx && q.answer.trim()).length;
+  const numQuestions = Math.max(0, totalQuestions ?? (qaList.length - 2)); // exclude name/greeting and clamp to 0 minimum
+  const progress = numQuestions
+    ? (questionsAnswered / numQuestions) * 100
+    : 0;
+
+  // Loading state
+  if (status === "loading" || !qaList[0]) {
     return <LoadingVideo />;
   }
-  const progress = totalQuestions
-    ? ((Math.max(currentQuestion - 2, 0) + 1) / totalQuestions) * 100
-    : ((currentQuestion + 1) / questions.length) * 100;
 
-  // Compute displayed questions answered, skipping the intro screen
-  const displayCount = currentQuestion === 0
-    ? 0
-    : currentQuestion === 1
-      ? 1
-      : currentQuestion - 1;
+  // Handle input value for current question
+  const inputValue = qaList[currentIdx]?.answer || "";
 
+  // Handler for Next button
   const handleNext = async () => {
-    const answerToSend = answers[currentQuestion];
-    if (currentQuestion === 0) {
-      const name = answerToSend.trim();
+    setButtonClicked(true);
+    // Name phase
+    if (phase === QuizPhase.Name) {
+      const name = qaList[0].answer.trim();
       if (!name) {
         alert("Please enter your full name to continue.");
+        setButtonClicked(false);
         return;
       }
-      // Store the name as the first answer
-      setAnswers((prev) => {
-        const updated = [...prev];
-        updated[0] = name;
-        return updated;
-      });
-      setButtonClicked(true);
-
+      // Immediately transition UI to Greeting phase
+      setCurrentIdx(1);
+      setPhase(QuizPhase.Greeting);
+      setTypingDone(false);
+      // Prepare provisional greeting while loading
+      const firstName = name.split(" ")[0];
+      setFinalGreetingHTML(`Hi ${firstName}, loading your profile...`);
       try {
         const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/whoami`, {
           method: "POST",
@@ -151,207 +151,195 @@ export default function QuizScreen() {
             context: userContext,
           }),
         });
-
-        if (!res.ok) {
-          throw new Error("Failed to fetch identity. Please try again later.");
-        }
-
+        if (!res.ok) throw new Error("Failed to fetch identity.");
         const data = await res.json();
-        // Persist the SerpAPI + GPT search summary
         if (data.gpt?.search_summary) {
           localStorage.setItem("quizSearchSummary", data.gpt.search_summary);
         }
-        const intro = `Hi ${name}, let's get to know you better.`;
-
-        const firstName = name.split(" ")[0];
+        // Now update with real greeting and questions
         const greeting = data.gpt.matched
-          ? `Hi <span class="highlight-name">${firstName}</span>, it's nice to have you in our website. Let's get started with a few questions.`
-          : `Hi ${firstName}, it's nice to have you in our website. Let's get started with a few questions.`;
-
+          ? `Hi <span class="highlight-name">${firstName}</span>, it's nice to have you on our website. Let's get started with a few questions.`
+          : `Hi ${firstName}, it's nice to have you on our website. Let's get started with a few questions.`;
         setFinalGreetingHTML(greeting);
-        setTypedGreeting("");
-        const plainGreeting = greeting.replace(/<[^>]+>/g, "");
-
-        if (data?.gpt?.number_of_questions) {
-          setTotalQuestions(data.gpt.number_of_questions + 1); // +1 to include name, second entry is not a real question
-        }
-
         setKnownUser(!!data.gpt.matched);
-
-      if (data?.gpt?.matched) {
-        const followups = Array(data.gpt.number_of_questions).fill(null).map((_, i) => `Question ${i + 1}`);
-        const allQuestions = [
-          "What's your full name?",
-          plainGreeting,
-          data.gpt.first_question,
-          ...followups.slice(1),
-        ];
-        setQuestions(allQuestions);
-        setQuizData(allQuestions.map((q) => ({ question: q, answer: "" })));
-        // Record the user's name as the first quizData entry
-        setQuizData((prev) => {
-          const updated = [...prev];
-          if (updated[0]) {
-            updated[0] = { ...updated[0], answer: name };
+        setTotalQuestions(data.gpt.number_of_questions ?? null);
+        // Compose followups...
+        const followups: QuizEntry[] = [];
+        if (data.gpt.first_question) followups.push({ question: data.gpt.first_question, answer: "" });
+        if (!data.gpt.matched) {
+          if (Array.isArray(data.gpt.nextQuestions)) {
+            followups.push(...data.gpt.nextQuestions.map((q: string) => ({ question: q, answer: "" })));
+          } else {
+            for (let i = 1; i < (data.gpt.number_of_questions || 0); i++) {
+              followups.push({ question: "Tell us something about yourself.", answer: "" });
+            }
           }
-          return updated;
-        });
-      } else {
-        const followups = Array(data.gpt.number_of_questions).fill(null).map((_, i) => `Question ${i + 1}`);
-        const allQuestions = [
-          "What's your full name?",
-          intro,
-          data.gpt.first_question,
-          "We couldn't find you online. Let's create a profile from scratch.",
+        }
+        setQaList([
+          { question: "What's your full name?", answer: name },
+          { question: greeting, answer: "" },
           ...followups,
-        ];
-        setQuestions(allQuestions);
-        setQuizData(allQuestions.map((q) => ({ question: q, answer: "" })));
-        // Record the user's name as the first quizData entry
-        setQuizData((prev) => {
-          const updated = [...prev];
-          if (updated[0]) {
-            updated[0] = { ...updated[0], answer: name };
-          }
-          return updated;
-        });
-      }
-
-        setCurrentQuestion(1);
-        setStartGreeting(true);
+        ]);
       } catch (err) {
+        // eslint-disable-next-line
         console.error("WhoAmI error:", err);
-        alert("Something went wrong trying to fetch your info. Try again later.");
+        alert("Something went wrong. Proceeding to questions.");
+      } finally {
+        setButtonClicked(false);
       }
       return;
     }
-
-    try {
-      // Skip backend call for intro or summary questions (e.g., question 1 or 2 after name)
-      if (currentQuestion > 1) {
-        console.log("Submitting answer for question:", questions[currentQuestion]);
-        setButtonClicked(true);
-        const storedName = localStorage.getItem("quizName") || answers[0];
-        let data;
+    // Greeting phase: skip input, advance to first real question
+    if (phase === QuizPhase.Greeting) {
+      setPhase(QuizPhase.Questions);
+      setCurrentIdx(2);
+      setButtonClicked(false);
+      return;
+    }
+    // Questions phase
+    if (phase === QuizPhase.Questions) {
+      // If not answered, block
+      if (!qaList[currentIdx].answer.trim()) {
+        setButtonClicked(false);
+        return;
+      }
+      try {
+        // Submit answer to backend if needed (skip for greeting/name)
+        let data: any = null;
         if (knownUser) {
-          // Known user: submit to /submit-known-answer
+          const name = qaList[0].answer;
           const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/submit-known-answer`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              name: storedName,
+              name,
               user_id: userId,
-              answer: answerToSend,
-              question_id: currentQuestion + 1,
-              last_question: questions[currentQuestion],
-              history: quizData.map(q => q.answer).filter(Boolean),
+              answer: qaList[currentIdx].answer,
+              question_id: currentIdx + 1,
+              last_question: qaList[currentIdx].question,
+              history: qaList.slice(2, currentIdx).map(q => q.answer).filter(Boolean),
               search_summary: localStorage.getItem("quizSearchSummary") || "",
             }),
           });
           data = await res.json();
         } else {
-          // Gather only the answered questions so far
-          const answered = questions
-            .map((q, idx) => ({ question: q, answer: answers[idx] }))
-            .filter(p => p.answer && p.answer.trim());
-
-          // Unknown user: submit to /enhanced-whoami with only answered Q&A
+          // Unknown user: update profile with all Q&A so far
+          const name = qaList[0].answer;
+          const answered = qaList.slice(2, currentIdx + 1).filter(q => q.answer && q.answer.trim());
           const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/enhanced-whoami`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              name: storedName,
+              name,
               user_id: userId,
               questions: answered.map(p => p.question),
-              answers:   answered.map(p => p.answer),
+              answers: answered.map(p => p.answer),
             }),
           });
           data = await res.json();
         }
-        console.log("Response from backend:", data);
-
-        // Inject backend-provided follow-up for known users
-        if (knownUser && data.nextQuestions && data.nextQuestions.length > 0) {
-          const nextQ = data.nextQuestions[0];
-          setQuestions(prev => {
+        // For known users, append next question if provided
+        if (knownUser && data?.nextQuestions && data.nextQuestions.length > 0) {
+          setQaList(prev => {
             const updated = [...prev];
-            if (currentQuestion + 1 < updated.length) {
-              updated[currentQuestion + 1] = nextQ;
-            } else {
-              updated.push(nextQ);
-            }
-            return updated;
-          });
-          setQuizData(prev => {
-            const updated = [...prev];
-            if (currentQuestion + 1 < updated.length) {
-              updated[currentQuestion + 1] = { question: nextQ, answer: "" };
-            } else {
-              updated.push({ question: nextQ, answer: "" });
+            // Only append if not already present
+            if (!updated.some(q => q.question === data.nextQuestions[0])) {
+              updated.push({ question: data.nextQuestions[0], answer: "" });
             }
             return updated;
           });
         }
-
-        if (!knownUser) {
-          // Handle unknown-user GPT logic: REBUILD questions array
-          setKnownUser(data.gpt.matched);
-          if (data.gpt.number_of_questions) {
-            setTotalQuestions(data.gpt.number_of_questions + 1);
+        // If last question, phase = Done
+        if (currentIdx >= (totalQuestions ? totalQuestions + 1 : qaList.length - 1)) {
+          // Save answers and redirect
+          if (typeof window !== "undefined") {
+            localStorage.setItem("quizAnswers", JSON.stringify(qaList));
+            localStorage.setItem("quizSummary", "placeholder-summary");
           }
-          if (data.gpt.first_question) {
-            // Rebuild questions array: name prompt, greeting, then the GPT-provided first follow-up
-            const newQuestions = [
-              questions[0],      // "What's your full name?"
-              questions[1],      // the greeting or intro text
-              data.gpt.first_question,
-            ];
-            setQuestions(newQuestions);
-            setQuizData(newQuestions.map((q) => ({ question: q, answer: "" })));
-            // Jump to the newly loaded question and skip the generic navigation logic
-            setCurrentQuestion(2);
-            return;
-          }
+          setPhase(QuizPhase.Done);
+          setButtonClicked(false);
+          router.push("/profile");
+          return;
+        } else {
+          setCurrentIdx(currentIdx + 1);
+          setButtonClicked(false);
         }
+      } catch (err) {
+        // eslint-disable-next-line
+        console.error("Error submitting answer:", err);
+        setButtonClicked(false);
       }
-
-      // If it's the last question, save answers and navigate to the profile screen
-      if (knownUser && currentQuestion >= questions.length - 1) {
-        if (typeof window !== "undefined") {
-          localStorage.setItem("quizAnswers", JSON.stringify(quizData));
-          localStorage.setItem("quizSummary", "placeholder-summary");
-        }
-        router.push("/profile");
-        return;
-      } else {
-        // Update quizData with answer
-        setQuizData((prev) => {
-          const updated = [...prev];
-          updated[currentQuestion] = {
-            ...updated[currentQuestion],
-            answer: answerToSend,
-          };
-          console.log("Stored question/answer pair:", updated[currentQuestion]);
-          return updated;
-        });
-
-        // Reset the answer for the current question right after advancing
-        const nextQuestionIndex = currentQuestion + 1;
-        setCurrentQuestion(nextQuestionIndex);
-        setAnswers((prev) => {
-          const newAnswers = [...prev];
-          // Ensure the array has an entry for the next question
-          if (newAnswers.length <= nextQuestionIndex) {
-            newAnswers.length = nextQuestionIndex + 1;
-          }
-          newAnswers[nextQuestionIndex] = "";
-          return newAnswers;
-        });
-      }
-    } catch (error) {
-      console.error("Error submitting answer:", error);
+      return;
     }
   };
+
+  // Handle input change
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setButtonClicked(false);
+    setQaList(prev => {
+      const updated = [...prev];
+      updated[currentIdx] = { ...updated[currentIdx], answer: e.target.value };
+      return updated;
+    });
+  };
+
+  // Render logic per phase
+  let questionContent = null;
+  if (phase === QuizPhase.Name) {
+    questionContent = (
+      <motion.h2
+        className="quiz-question"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.5 }}
+      >
+        <TypingEffect text="What's your full name?" speed={22} onComplete={() => setTypingDone(true)} />
+      </motion.h2>
+    );
+  } else if (phase === QuizPhase.Greeting) {
+    // Strip HTML tags for typing animation and remove accidental "undefined" at end
+    let rawGreeting = finalGreetingHTML.replace(/<[^>]+>/g, '');
+    // Remove any accidental "undefined" suffix
+    rawGreeting = rawGreeting.replace(/undefined$/g, '').trim();
+    questionContent = (
+      <motion.h2
+        className="quiz-question"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.5 }}
+      >
+        <TypingEffect text={rawGreeting} speed={22} onComplete={() => setTypingDone(true)} />
+      </motion.h2>
+    );
+  } else if (phase === QuizPhase.Questions && qaList[currentIdx]) {
+    questionContent = (
+      <motion.h2
+        className="quiz-question"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 0.5 }}
+      >
+        <TypingEffect
+          text={qaList[currentIdx].question || ""}
+          speed={20}
+          onComplete={() => setTypingDone(true)}
+        />
+      </motion.h2>
+    );
+  }
+
+  // Show input only for Name and Questions phases
+  const showInput = (phase === QuizPhase.Name) || (phase === QuizPhase.Questions && qaList[currentIdx]);
+
+  // Button label
+  let buttonLabel = "Next";
+  if (phase === QuizPhase.Greeting) buttonLabel = "Continue";
+  if (phase === QuizPhase.Questions && currentIdx >= (totalQuestions ? totalQuestions + 1 : qaList.length - 1)) buttonLabel = "View Your Profile";
+
+  // Button disabled logic
+  let buttonDisabled = false;
+  if (phase === QuizPhase.Name && !qaList[0].answer.trim()) buttonDisabled = true;
+  if (phase === QuizPhase.Questions && !qaList[currentIdx]?.answer.trim()) buttonDisabled = true;
 
   return (
     <motion.div
@@ -361,55 +349,17 @@ export default function QuizScreen() {
       className="quiz-screen"
     >
       <div className="progress-bar-label" style={{ marginBottom: "4px", fontSize: "0.85rem", color: "#ccc" }}>
-        {displayCount} of {(currentQuestion <= 1 && (!totalQuestions || totalQuestions === 1)) ? "?" : totalQuestions || questions.length} questions answered
+        {questionsAnswered} of {numQuestions || "?"} questions answered
       </div>
       <div className="progress-bar">
         <div className="progress-bar-fill" style={{ width: `${progress}%` }} />
       </div>
-      {currentQuestion === 0 ? (
-        <motion.h2
-          className="quiz-question"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.5 }}
-        >
-          {typedIntro}
-        </motion.h2>
-      ) : currentQuestion === 1 ? (
-        typedGreeting.length < questions[1].length ? (
-          <motion.h2
-            className="quiz-question"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.5 }}
-          >
-            {typedGreeting}
-          </motion.h2>
-        ) : (
-          <motion.h2
-            className="quiz-question"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            transition={{ duration: 0.5 }}
-            dangerouslySetInnerHTML={{ __html: finalGreetingHTML }}
-          />
-        )
-      ) : (
-        <h2
-          className="quiz-question"
-          dangerouslySetInnerHTML={{ __html: (questions[currentQuestion] ?? '').replace(/\n/g, "<br />") }}
-        />
-      )}
-      {currentQuestion !== 1 && (
+      {questionContent}
+      {showInput && (
         <input
           className="quiz-input"
-          value={answers[currentQuestion] || ""}
-          onChange={(e) => {
-            setButtonClicked(false);
-            const newAnswers = [...answers];
-            newAnswers[currentQuestion] = e.target.value;
-            setAnswers(newAnswers);
-          }}
+          value={inputValue}
+          onChange={handleInputChange}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
@@ -418,49 +368,26 @@ export default function QuizScreen() {
           }}
           placeholder="Type your answer here..."
           autoFocus
-          autoComplete="off"  
+          autoComplete="off"
         />
       )}
-      
       <div className="quiz-button-container">
-        {currentQuestion < questions.length - 1 ? (
-          <button
-            className={`quiz-button ${buttonClicked ? "clicked" : ""}`}
-            onClick={handleNext}
-            disabled={currentQuestion !== 1 && !answers[currentQuestion]}
-          >
-            <>
-              Next{buttonClicked && currentQuestion !== 1 && answers[currentQuestion] && (
-                <span className="dots-loader">
-                  <span className="dot" />
-                  <span className="dot" />
-                  <span className="dot" />
-                </span>
-              )}
-            </>
-          </button>
-        ) : (
-          <button
-            className={`quiz-button ${buttonClicked ? "clicked" : ""}`}
-            onClick={handleNext}
-            disabled={currentQuestion !== 1 && !answers[currentQuestion]}
-          >
-            {currentQuestion === 0 ? (
-              <>
-                {!buttonClicked && "Continue"}
-                {buttonClicked && (
-                  <span className="dots-loader">
-                    <span className="dot" />
-                    <span className="dot" />
-                    <span className="dot" />
-                  </span>
-                )}
-              </>
-            ) : (
-              <Link href="/profile" className="Link">View Your Profile</Link>
+        <button
+          className={`quiz-button ${buttonClicked ? "clicked" : ""}`}
+          onClick={handleNext}
+          disabled={buttonDisabled}
+        >
+          <>
+            {buttonLabel}
+            {buttonClicked && (
+              <span className="dots-loader">
+                <span className="dot" />
+                <span className="dot" />
+                <span className="dot" />
+              </span>
             )}
-          </button>
-        )}
+          </>
+        </button>
       </div>
       <div style={{ textAlign: "left", marginRight: "10px", marginTop: "5px" }}>
         <Link href="/profile">
