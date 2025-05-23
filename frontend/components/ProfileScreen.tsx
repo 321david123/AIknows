@@ -26,6 +26,7 @@ export default function ProfileScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [emailError, setEmailError] = useState<string>("");
   const [passwordError, setPasswordError] = useState<string>("");
+  const [serverError, setServerError] = useState<string>("");
 
   // New state for secure profile code verification
   const [isSecured, setIsSecured] = useState(false);
@@ -180,9 +181,10 @@ export default function ProfileScreen() {
   // Handler to secure the profile and send verification code email
   const handleSecureProfile = async (email: string, password: string) => {
     if (!email || !password) {
-      alert("Email and password are required.");
+      setServerError("Email and password are required.");
       return;
     }
+    setServerError("");
     setIsSubmitting(true);
     try {
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/request-verification-code`, {
@@ -193,13 +195,18 @@ export default function ProfileScreen() {
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
         console.error("Error requesting verification code:", res.statusText, errorData);
-        alert("Failed to send verification code.");
+        const errMsg =
+          errorData.message ||
+          errorData.error ||
+          errorData.detail ||
+          "Failed to send verification code.";
+        setServerError(errMsg);
         return;
       }
       setShowCodeModal(true); // Only show code modal on success
     } catch (err) {
       console.error("Verification request error:", err);
-      alert("Error sending verification code.");
+      setServerError("Error sending verification code.");
     } finally {
       setIsSubmitting(false);
     }
@@ -623,71 +630,84 @@ export default function ProfileScreen() {
                 <>
                   <h2 style={{ marginBottom: "1rem" }}>Join the Leaderboard</h2>
                   <p style={{ fontSize: "0.9rem", color: "#555" }}>Enter your email to secure your profile and get featured.</p>
-                  <input
-                    type="email"
-                    placeholder="your@email.com"
-                    value={emailInput}
-                    onChange={(e) => setEmailInput(e.target.value)}
-                    style={{
-                      width: "100%",
-                      padding: "0.75rem",
-                      marginTop: "1rem",
-                      marginBottom: "1rem",
-                      border: "1px solid #ccc",
-                      borderRadius: "8px"
+                  <form
+                    onSubmit={e => {
+                      e.preventDefault();
+                      setEmailError("");
+                      setPasswordError("");
+                      setServerError("");
+                      if (!emailInput.includes("@")) {
+                        setEmailError("Please enter a valid email address.");
+                        return;
+                      }
+                      if (passwordInput.length < 6) {
+                        setPasswordError("Password must be at least 6 characters long.");
+                        return;
+                      }
+                      handleSecureProfile(emailInput, passwordInput);
                     }}
-                  />
-                  {emailError && (
-                    <p style={{ color: "red", fontSize: "0.8rem", marginTop: "0.25rem" }}>
-                      {emailError}
-                    </p>
-                  )}
-                  <input
-                    type="password"
-                    placeholder="Create a password"
-                    value={passwordInput}
-                    onChange={(e) => setPasswordInput(e.target.value)}
-                    style={{
-                      width: "100%",
-                      padding: "0.75rem",
-                      marginTop: "0.5rem",
-                      marginBottom: "1rem",
-                      border: "1px solid #ccc",
-                      borderRadius: "8px"
-                    }}
-                  />
-                  {passwordError && (
-                    <p style={{ color: "red", fontSize: "0.8rem", marginTop: "0.25rem" }}>
-                      {passwordError}
-                    </p>
-                  )}
-                  <div style={{ display: "flex", justifyContent: "space-between" }}>
-                    <button
-                      onClick={() => {
-                        setEmailError("");
-                        setPasswordError("");
-                        if (!emailInput.includes("@")) {
-                          setEmailError("Please enter a valid email address.");
-                          return;
-                        }
-                        if (passwordInput.length < 6) {
-                          setPasswordError("Password must be at least 6 characters long.");
-                          return;
-                        }
-                        handleSecureProfile(emailInput, passwordInput);
+                    style={{ width: "100%" }}
+                  >
+                    {serverError && (
+                      <p style={{ color: "red", fontSize: "0.8rem", marginBottom: "0.5rem" }}>
+                        {serverError}
+                      </p>
+                    )}
+                    <input
+                      type="email"
+                      placeholder="your@email.com"
+                      value={emailInput}
+                      onChange={e => setEmailInput(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "0.75rem",
+                        marginTop: "1rem",
+                        marginBottom: "0.25rem",
+                        border: "1px solid #ccc",
+                        borderRadius: "8px"
                       }}
-                      style={{ padding: "0.5rem 1rem", background: "#0070f3", color: "#fff", border: "none", borderRadius: "6px" }}
-                      disabled={isSubmitting}
-                    >
-                      {isSubmitting ? "Submitting..." : "Submit"}
-                    </button>
-                    <button
-                      onClick={() => setShowEmailModal(false)}
-                      style={{ padding: "0.5rem 1rem", background: "#ccc", border: "none", borderRadius: "6px" }}
-                    >
-                      Cancel
-                    </button>
-                  </div>
+                    />
+                    {emailError && (
+                      <p style={{ color: "red", fontSize: "0.8rem", marginTop: "0.25rem" }}>
+                        {emailError}
+                      </p>
+                    )}
+                    <input
+                      type="password"
+                      placeholder="Create a password"
+                      value={passwordInput}
+                      onChange={e => setPasswordInput(e.target.value)}
+                      style={{
+                        width: "100%",
+                        padding: "0.75rem",
+                        marginTop: "0.5rem",
+                        marginBottom: "0.25rem",
+                        border: "1px solid #ccc",
+                        borderRadius: "8px"
+                      }}
+                    />
+                    {passwordError && (
+                      <p style={{ color: "red", fontSize: "0.8rem", marginTop: "0.25rem" }}>
+                        {passwordError}
+                      </p>
+                    )}
+                    <div style={{ display: "flex", justifyContent: "space-between", marginTop: "1rem" }}>
+                      <button
+                        type="submit"
+                        style={{ padding: "0.5rem 1rem", background: "#0070f3", color: "#fff", border: "none", borderRadius: "6px" }}
+                        disabled={isSubmitting}
+                      >
+                        {isSubmitting ? "Submitting..." : "Submit"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setShowEmailModal(false)}
+                        style={{ padding: "0.5rem 1rem", background: "#ccc", border: "none", borderRadius: "6px" }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </form>
                 </>
               ) : (
                 <>
