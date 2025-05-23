@@ -24,6 +24,8 @@ export default function ProfileScreen() {
   const [emailInput, setEmailInput] = useState("");
   const [passwordInput, setPasswordInput] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [emailError, setEmailError] = useState<string>("");
+  const [passwordError, setPasswordError] = useState<string>("");
 
   // New state for secure profile code verification
   const [isSecured, setIsSecured] = useState(false);
@@ -635,6 +637,11 @@ export default function ProfileScreen() {
                       borderRadius: "8px"
                     }}
                   />
+                  {emailError && (
+                    <p style={{ color: "red", fontSize: "0.8rem", marginTop: "0.25rem" }}>
+                      {emailError}
+                    </p>
+                  )}
                   <input
                     type="password"
                     placeholder="Create a password"
@@ -649,11 +656,25 @@ export default function ProfileScreen() {
                       borderRadius: "8px"
                     }}
                   />
+                  {passwordError && (
+                    <p style={{ color: "red", fontSize: "0.8rem", marginTop: "0.25rem" }}>
+                      {passwordError}
+                    </p>
+                  )}
                   <div style={{ display: "flex", justifyContent: "space-between" }}>
                     <button
-                      onClick={async () => {
-                        await handleSecureProfile(emailInput, passwordInput);
-                        // setShowCodeModal will be called inside handleSecureProfile after success
+                      onClick={() => {
+                        setEmailError("");
+                        setPasswordError("");
+                        if (!emailInput.includes("@")) {
+                          setEmailError("Please enter a valid email address.");
+                          return;
+                        }
+                        if (passwordInput.length < 6) {
+                          setPasswordError("Password must be at least 6 characters long.");
+                          return;
+                        }
+                        handleSecureProfile(emailInput, passwordInput);
                       }}
                       style={{ padding: "0.5rem 1rem", background: "#0070f3", color: "#fff", border: "none", borderRadius: "6px" }}
                       disabled={isSubmitting}
