@@ -82,6 +82,8 @@ npm install
 npm run dev
 ```
 
+(Remember to setup your env variables)
+
 ➡️ `http://localhost:3000`
 
 ---
